@@ -796,88 +796,6 @@ export default function RecipeDetailScreen() {
 
         {/* Action Buttons */}
         <View style={styles.actionButtons}>
-<<<<<<< HEAD
-          <TouchableOpacity style={styles.seeFullButton} onPress={() => { /* placeholder */ }}>
-            <Text style={styles.seeFullButtonText}>See Full Recipe</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.goWithButton} onPress={() => router.push("/(tabs)/home")}>
-            <Text style={styles.goWithButtonText}>Go with this Recipe</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Ingredients */}
-        <View style={styles.ingredientsSection}>
-          <Text style={styles.sectionTitle}>Ingredients</Text>
-          {(current.ingredients ?? []).length === 0 ? (
-            <Text style={{ color: "#64748B" }}>No ingredients available.</Text>
-          ) : (
-            (current.ingredients ?? []).map((ingredient, index) => {
-              const amt = ingredientAmounts[index] ?? toNumberSafe(ingredient.quantity, 1);
-              const baseAmt = toNumberSafe(ingredient.quantity, 1);
-              const ratio = baseAmt > 0 ? amt / baseAmt : 1;
-              const costProvided = toNumberSafe(ingredient.cost, NaN);
-              const costPerBase = isFinite(costProvided) ? costProvided : estimatePriceByName(ingredient.name ?? "");
-              const itemCostNum = isFinite(costPerBase * ratio) ? costPerBase * ratio : 0;
-              const itemCost = itemCostNum.toFixed(2);
-
-              return (
-                <View key={index} style={styles.ingredientRow}>
-                  <View style={styles.ingredientInfo}>
-                    <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                    <Text style={styles.ingredientAmount}>
-                      {amt} {ingredient.unit ?? ""}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ fontSize: 14, color: "#6C8BE6", fontWeight: "600" }}>₹{itemCost}</Text>
-                    <View style={styles.ingredientControls}>
-                      <TouchableOpacity style={styles.ingredientButton} onPress={() => adjustIngredient(index, -0.5)}>
-                        <Minus size={12} color="#6C8BE6" strokeWidth={2} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.ingredientButton} onPress={() => adjustIngredient(index, 0.5)}>
-                        <Plus size={12} color="#6C8BE6" strokeWidth={2} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
-
-        {/* Cost breakdown */}
-        <View style={styles.costSection}>
-          <Text style={styles.sectionTitle}>Cost Breakdown</Text>
-          <View style={styles.costCard}>
-            <View style={styles.costHeader}>
-              <Text style={styles.costTotal}>Total: ₹{getTotalCost()}</Text>
-              <Text style={styles.costPer}>
-                Per serving: ₹
-                {(() => {
-                  const total = Number(getTotalCost());
-                  const serv = Number(servingsLocal ?? Number(current.servings ?? 2)) || 1;
-                  const per = serv > 0 ? (total / serv).toFixed(2) : "0.00";
-                  return per;
-                })()}
-              </Text>
-            </View>
-            {(current.ingredients ?? []).map((ing, index) => {
-              const currentAmount = ingredientAmounts[index] ?? toNumberSafe(ing.quantity, 1);
-              const baseAmt = toNumberSafe(ing.quantity, 1);
-              const ratio = baseAmt > 0 ? currentAmount / baseAmt : 1;
-              const costProvided = toNumberSafe(ing.cost, NaN);
-              const costPerBase = isFinite(costProvided) ? costProvided : estimatePriceByName(ing.name ?? "");
-              const itemCostNum = isFinite(costPerBase * ratio) ? costPerBase * ratio : 0;
-              const itemCost = itemCostNum.toFixed(2);
-              return (
-                <View key={index} style={styles.costRow}>
-                  <Text style={styles.costItem}>{ing.name}</Text>
-                  <Text style={styles.costAmount}>₹{itemCost}</Text>
-                </View>
-              );
-            })}
-=======
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={handleGoWithRecipe}>
@@ -903,7 +821,6 @@ export default function RecipeDetailScreen() {
               <Text style={styles.sectionTitle}>Ingredients</Text>
             </View>
             <Text style={styles.sectionSubtitle}>{ingredients.length} items</Text>
->>>>>>> 1045d37a227593f1994cfeb1f9ae2bc1c5d0438d
           </View>
           
           {ingredients.length > 0 ? (
