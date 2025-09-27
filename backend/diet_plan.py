@@ -180,7 +180,6 @@ def parse_calories_value(val, fallback: int) -> int:
     if isinstance(val, (int, float)):
         return int(round(val))
     s = str(val)
-    # find first integer in string
     m = re.search(r"(-?\d+)", s.replace(",", ""))
     if m:
         try:
@@ -265,14 +264,12 @@ def groq_generate_week_plan(prompt: str, days: int, meals: List[str], user: dict
                 meal_text = call_groq_chat_system(gen_system, gen_user)
                 meal_json = parse_json_from_text(meal_text)
                 if meal_json and meal_json.get("name"):
-                    # normalize calories to integer (if string like '420 cal' parse it)
                     meal_cals = parse_calories_value(meal_json.get("calories"), meal_cal_target)
                     name = meal_json.get("name").strip()
-                    # avoid duplicates completely
+                    # If Groq returns duplicate name, fallback to deterministic to avoid same meals
                     if name in used_names_global:
                         raise ValueError("Duplicate name from model; fallback to deterministic")
                     meal_json["calories"] = int(meal_cals)
-                    # ensure macros present
                     if "macros" not in meal_json:
                         meal_json["macros"] = macros_from_calories(meal_cals)
                     meal_json.setdefault("id", str(uuid.uuid4()))
@@ -286,7 +283,6 @@ def groq_generate_week_plan(prompt: str, days: int, meals: List[str], user: dict
             # fallback deterministic meal, ensure calorie equals allocation
             pref_tags = [t.strip().lower() for t in (prompt or "").split(",") if t.strip()]
             fallback_meal = build_meal_from_template(mtype, meal_cal_target, pref_tags, day_index=d_index, avoid_names=list(used_names_global))
-            # if fallback duplicates, append day to name
             if fallback_meal["name"] in used_names_global:
                 fallback_meal["name"] = f"{fallback_meal['name']} ({day_name})"
             used_names_global.add(fallback_meal["name"])

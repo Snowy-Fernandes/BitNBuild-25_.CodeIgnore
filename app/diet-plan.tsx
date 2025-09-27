@@ -365,16 +365,7 @@ export default function DietPlanScreen() {
                 </View>
               </View>
 
-              <View style={styles.totalCalories}>
-                <Text style={styles.caloriesText}>
-                  {/* compute total robustly */}
-                  Total: {
-                    getCaloriesValue(mealPlans[day].breakfast.calories) +
-                    getCaloriesValue(mealPlans[day].lunch.calories) +
-                    getCaloriesValue(mealPlans[day].dinner.calories)
-                  } cal
-                </Text>
-              </View>
+              
             </TouchableOpacity>
           ))}
         </View>

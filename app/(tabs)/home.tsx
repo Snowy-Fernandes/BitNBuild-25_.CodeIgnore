@@ -147,18 +147,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Community Card */}
-        <TouchableOpacity
-          style={[styles.heroCard, styles.communityCard, { marginHorizontal: 0, marginBottom: 32 }]}
-          onPress={() => router.push('/community')}
-          accessibilityLabel="Join cooking community"
-          accessibilityRole="button">
-          <View style={styles.heroCardIcon}>
-            <CommunityIcon size={32} color="#EF4444" />
-          </View>
-          <Text style={styles.heroCardTitle}>Join Our Community</Text>
-          <Text style={styles.heroCardSubtitle}>Share recipes, get inspired, and connect with fellow food lovers</Text>
-        </TouchableOpacity>
+        
 
         {/* Weekly Diet Plan Button */}
         <TouchableOpacity
