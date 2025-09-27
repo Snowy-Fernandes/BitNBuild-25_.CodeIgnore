@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,9 +8,12 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { ChevronLeft, ChevronDown, X } from 'lucide-react-native';
+import { supabase } from '../backend/lib/supabase';
+import { useAuth } from './AuthProvider';
 
 const allergies = ['Nuts', 'Dairy', 'Gluten', 'Shellfish', 'Eggs', 'Soy', 'Fish'];
 
@@ -21,6 +24,8 @@ export default function OnboardingScreen() {
   const [weight, setWeight] = useState('');
   const [medications, setMedications] = useState('');
   const [showPeoplePicker, setShowPeoplePicker] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   const toggleAllergy = (allergy: string) => {
     if (selectedAllergies.includes(allergy)) {
@@ -30,13 +35,85 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleNext = () => {
+  // Add display_name to the interface in onboarding.tsx if needed
+// The name will already be saved from the name-input screen
+
+// In the saveProfileData function, you can optionally update the display name:
+const saveProfileData = async () => {
+  if (!user) {
+    Alert.alert('Error', 'User not found. Please log in again.');
+    return false;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .upsert({
+        id: user.id,
+        num_people: parseInt(numPeople) || 2,
+        allergies: selectedAllergies,
+        height: height ? parseInt(height) : null,
+        weight: weight ? parseInt(weight) : null,
+        medications: medications || null,
+        updated_at: new Date().toISOString(),
+        // display_name is already set from name-input screen
+      });
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error saving profile data:', error);
+    Alert.alert('Error', 'Failed to save profile data. Please try again.');
+    return false;
+  }
+};
+  const handleNext = async () => {
     if (!height.trim() || !weight.trim()) {
       Alert.alert('Please Complete', 'Please fill in your height and weight');
       return;
     }
-    router.push('/(tabs)/home');
+
+    setLoading(true);
+    
+    const success = await saveProfileData();
+    
+    if (success) {
+      router.push('/(tabs)/home');
+    }
+    
+    setLoading(false);
   };
+
+  // Load existing profile data if available
+  useEffect(() => {
+    const loadProfileData = async () => {
+      if (!user) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+          throw error;
+        }
+
+        if (data) {
+          setNumPeople(data.num_people?.toString() || '2');
+          setSelectedAllergies(data.allergies || []);
+          setHeight(data.height?.toString() || '');
+          setWeight(data.weight?.toString() || '');
+          setMedications(data.medications || '');
+        }
+      } catch (error) {
+        console.error('Error loading profile data:', error);
+      }
+    };
+
+    loadProfileData();
+  }, [user]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -167,11 +244,16 @@ export default function OnboardingScreen() {
 
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.nextButton}
+          style={[styles.nextButton, loading && styles.nextButtonDisabled]}
           onPress={handleNext}
+          disabled={loading}
           accessibilityLabel="Continue to home"
           accessibilityRole="button">
-          <Text style={styles.nextButtonText}>Continue</Text>
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.nextButtonText}>Continue</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -332,6 +414,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 56,
+  },
+  nextButtonDisabled: {
+    backgroundColor: '#A0AEC0',
   },
   nextButtonText: {
     color: '#FFFFFF',

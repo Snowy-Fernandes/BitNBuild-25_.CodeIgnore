@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { 
@@ -19,99 +20,126 @@ import {
   Settings,
   Heart,
   Clock,
+  Users,
+  AlertTriangle,
+  Ruler,
+  Weight,
+  Pill,
 } from 'lucide-react-native';
-
-const profileData = {
-  name: 'Sarah Johnson',
-  email: 'sarah.j@example.com',
-  joinDate: 'March 2024',
-  stats: {
-    recipesCreated: 24,
-    mealsLogged: 156,
-    favoriteRecipes: 18,
-    avgCookTime: '25 min',
-  },
-  nutritionGoals: {
-    dailyCalories: 2000,
-    protein: 120,
-    carbs: 250,
-    fats: 67,
-  },
-  recentActivity: [
-    { date: 'Today', meal: 'Mediterranean Bowl', calories: 420 },
-    { date: 'Yesterday', meal: 'Chicken Stir Fry', calories: 380 },
-    { date: '2 days ago', meal: 'Quinoa Salad', calories: 340 },
-  ],
-};
-
-const CalorieChart = () => (
-  <View style={styles.chartContainer}>
-    <Text style={styles.chartTitle}>Weekly Calories</Text>
-    <View style={styles.chartBars}>
-      {[1800, 2100, 1950, 2200, 1850, 2000, 1900].map((calories, index) => {
-        const height = (calories / 2500) * 100;
-        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        return (
-          <View key={index} style={styles.chartBar}>
-            <View
-              style={[
-                styles.bar,
-                { height: `${height}%`, backgroundColor: '#6C8BE6' },
-              ]}
-            />
-            <Text style={styles.barLabel}>{days[index]}</Text>
-          </View>
-        );
-      })}
-    </View>
-  </View>
-);
-
-const MacroBreakdown = () => (
-  <View style={styles.macroContainer}>
-    <Text style={styles.macroTitle}>Today's Macros</Text>
-    <View style={styles.macroItems}>
-      <View style={styles.macroItem}>
-        <View style={[styles.macroBar, styles.proteinBar]} />
-        <Text style={styles.macroLabel}>Protein</Text>
-        <Text style={styles.macroValue}>85g / 120g</Text>
-      </View>
-      <View style={styles.macroItem}>
-        <View style={[styles.macroBar, styles.carbsBar]} />
-        <Text style={styles.macroLabel}>Carbs</Text>
-        <Text style={styles.macroValue}>180g / 250g</Text>
-      </View>
-      <View style={styles.macroItem}>
-        <View style={[styles.macroBar, styles.fatsBar]} />
-        <Text style={styles.macroLabel}>Fats</Text>
-        <Text style={styles.macroValue}>45g / 67g</Text>
-      </View>
-    </View>
-  </View>
-);
+import { supabase } from '../backend/lib/supabase';
+import { useAuth } from './AuthProvider';
+import { Platform } from "react-native";
+interface UserProfile {
+  num_people: number;
+  allergies: string[];
+  height: number | null;
+  weight: number | null;
+  medications: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export default function ProfileScreen() {
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out of your account?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: () => {
-            // Clear any stored data and navigate to auth
-            router.replace('/auth');
-          },
-        },
-      ]
-    );
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { user, signOut } = useAuth();
+
+  const fetchProfile = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile not found, create a default one
+          setProfile({
+            num_people: 2,
+            allergies: [],
+            height: null,
+            weight: null,
+            medications: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        } else {
+          throw error;
+        }
+      } else {
+        setProfile(data);
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      Alert.alert('Error', 'Failed to load profile data');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  useEffect(() => {
+    fetchProfile();
+  }, [user]);
+
+
+
+const handleSignOut = () => {
+  console.log("Sign out button pressed");
+
+  if (Platform.OS === "web") {
+    // Web: just sign out directly
+    signOut()
+      .then(() => {
+        console.log("Supabase signOut completed (web), navigating to /auth");
+        router.replace("/auth");
+      })
+      .catch((err) => console.error("Error during sign out:", err));
+    return;
+  }
+
+  // Mobile: use native Alert
+  Alert.alert(
+    "Sign Out",
+    "Are you sure you want to sign out of your account?",
+    [
+      { text: "Cancel", style: "cancel", onPress: () => console.log("Sign out canceled") },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: async () => {
+          console.log("Sign out confirmed, calling signOut()");
+          try {
+            await signOut();
+            console.log("Supabase signOut completed, navigating to /auth");
+            router.replace("/auth");
+          } catch (err) {
+            console.error("Error during sign out:", err);
+          }
+        },
+      },
+    ]
+  );
+};
+
+
+
   const handleEditProfile = () => {
-    Alert.alert('Edit Profile', 'Profile editing will be available soon');
+    router.push('/onboarding');
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#6C8BE6" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -126,10 +154,10 @@ export default function ProfileScreen() {
         <Text style={styles.headerTitle}>Profile</Text>
         <TouchableOpacity
           style={styles.settingsButton}
-          onPress={() => Alert.alert('Settings', 'Settings will be available soon')}
-          accessibilityLabel="Settings"
+          onPress={handleEditProfile}
+          accessibilityLabel="Edit profile"
           accessibilityRole="button">
-          <Settings size={20} color="#6B7280" strokeWidth={2} />
+          <Edit3 size={20} color="#6B7280" strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
@@ -140,9 +168,14 @@ export default function ProfileScreen() {
               <User size={32} color="#6C8BE6" strokeWidth={2} />
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{profileData.name}</Text>
-              <Text style={styles.profileEmail}>{profileData.email}</Text>
-              <Text style={styles.joinDate}>Joined {profileData.joinDate}</Text>
+              <Text style={styles.profileName}>{user?.email?.split('@')[0] || 'User'}</Text>
+              <Text style={styles.profileEmail}>{user?.email}</Text>
+              <Text style={styles.joinDate}>
+                Joined {profile ? new Date(profile.created_at).toLocaleDateString('en-US', { 
+                  month: 'long', 
+                  year: 'numeric' 
+                }) : 'Recently'}
+              </Text>
             </View>
             <TouchableOpacity
               style={styles.editButton}
@@ -154,9 +187,81 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* Personal Information Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Personal Information</Text>
+          
+          <View style={styles.infoGrid}>
+            <View style={styles.infoItem}>
+              <View style={styles.infoIcon}>
+                <Users size={20} color="#6C8BE6" strokeWidth={2} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Cooking For</Text>
+                <Text style={styles.infoValue}>
+                  {profile?.num_people || 2} {profile?.num_people === 1 ? 'person' : 'people'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.infoItem}>
+              <View style={styles.infoIcon}>
+                <Ruler size={20} color="#6C8BE6" strokeWidth={2} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Height</Text>
+                <Text style={styles.infoValue}>
+                  {profile?.height ? `${profile.height} cm` : 'Not set'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.infoItem}>
+              <View style={styles.infoIcon}>
+                <Weight size={20} color="#6C8BE6" strokeWidth={2} />
+              </View>
+              <View style={styles.infoContent}>
+                <Text style={styles.infoLabel}>Weight</Text>
+                <Text style={styles.infoValue}>
+                  {profile?.weight ? `${profile.weight} kg` : 'Not set'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Allergies Section */}
+        {profile?.allergies && profile.allergies.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <AlertTriangle size={20} color="#F59E0B" strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Dietary Restrictions</Text>
+            </View>
+            <View style={styles.chipContainer}>
+              {profile.allergies.map((allergy, index) => (
+                <View key={index} style={styles.chip}>
+                  <Text style={styles.chipText}>{allergy}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Medications Section */}
+        {profile?.medications && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Pill size={20} color="#6C8BE6" strokeWidth={2} />
+              <Text style={styles.sectionTitle}>Medications</Text>
+            </View>
+            <Text style={styles.medicationsText}>{profile.medications}</Text>
+          </View>
+        )}
+
+        {/* Quick Stats */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{profileData.stats.recipesCreated}</Text>
+            <Text style={styles.statNumber}>24</Text>
             <Text style={styles.statLabel}>Recipes Created</Text>
             <View style={styles.statIcon}>
               <Text style={styles.statEmoji}>👨‍🍳</Text>
@@ -164,7 +269,7 @@ export default function ProfileScreen() {
           </View>
           
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{profileData.stats.mealsLogged}</Text>
+            <Text style={styles.statNumber}>156</Text>
             <Text style={styles.statLabel}>Meals Logged</Text>
             <View style={styles.statIcon}>
               <Text style={styles.statEmoji}>🍽️</Text>
@@ -172,7 +277,7 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{profileData.stats.favoriteRecipes}</Text>
+            <Text style={styles.statNumber}>18</Text>
             <Text style={styles.statLabel}>Favorites</Text>
             <View style={styles.statIcon}>
               <Heart size={16} color="#FF6B6B" fill="#FF6B6B" strokeWidth={2} />
@@ -180,7 +285,7 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{profileData.stats.avgCookTime}</Text>
+            <Text style={styles.statNumber}>25 min</Text>
             <Text style={styles.statLabel}>Avg Cook Time</Text>
             <View style={styles.statIcon}>
               <Clock size={16} color="#6C8BE6" strokeWidth={2} />
@@ -188,36 +293,20 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.chartsSection}>
-          <CalorieChart />
-          <MacroBreakdown />
-        </View>
-
-        <View style={styles.activitySection}>
-          <View style={styles.activityHeader}>
-            <Text style={styles.activityTitle}>Recent Activity</Text>
-            <TouchableOpacity
-              style={styles.viewAllButton}
-              accessibilityLabel="View all activity"
-              accessibilityRole="button">
-              <Text style={styles.viewAllText}>View All</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {profileData.recentActivity.map((activity, index) => (
-            <View key={index} style={styles.activityItem}>
-              <View style={styles.activityInfo}>
-                <Text style={styles.activityMeal}>{activity.meal}</Text>
-                <Text style={styles.activityDate}>{activity.date}</Text>
-              </View>
-              <Text style={styles.activityCalories}>{activity.calories} cal</Text>
-            </View>
-          ))}
-        </View>
-
+        {/* Quick Actions */}
         <View style={styles.quickActions}>
           <Text style={styles.quickActionsTitle}>Quick Actions</Text>
           
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={handleEditProfile}
+            accessibilityLabel="Edit preferences"
+            accessibilityRole="button">
+            <Text style={styles.actionEmoji}>⚙️</Text>
+            <Text style={styles.actionText}>Edit Preferences</Text>
+            <ChevronLeft size={16} color="#6B7280" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push('/(tabs)/my-recipes')}
@@ -237,18 +326,9 @@ export default function ProfileScreen() {
             <Text style={styles.actionText}>Nutrition Tracking</Text>
             <ChevronLeft size={16} color="#6B7280" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleEditProfile}
-            accessibilityLabel="Edit preferences"
-            accessibilityRole="button">
-            <Text style={styles.actionEmoji}>⚙️</Text>
-            <Text style={styles.actionText}>Edit Preferences</Text>
-            <ChevronLeft size={16} color="#6B7280" strokeWidth={2} style={{ transform: [{ rotate: '180deg' }] }} />
-          </TouchableOpacity>
         </View>
 
+        {/* Sign Out Section */}
         <View style={styles.signOutSection}>
           <TouchableOpacity
             style={styles.signOutButton}
@@ -268,6 +348,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F6F8FB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
   },
   header: {
     flexDirection: 'row',
@@ -331,6 +421,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1F2937',
     marginBottom: 4,
+    textTransform: 'capitalize',
   },
   profileEmail: {
     fontSize: 14,
@@ -348,6 +439,75 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF3FF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  section: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#EFF3FF',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  infoGrid: {
+    gap: 12,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  infoIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EFF3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1F2937',
+  },
+  chipContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    backgroundColor: '#EFF3FF',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6C8BE6',
+  },
+  medicationsText: {
+    fontSize: 14,
+    color: '#1F2937',
+    lineHeight: 20,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -384,143 +544,6 @@ const styles = StyleSheet.create({
   },
   statEmoji: {
     fontSize: 16,
-  },
-  chartsSection: {
-    marginBottom: 24,
-    gap: 16,
-  },
-  chartContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  chartTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  chartBars: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    height: 120,
-  },
-  chartBar: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  bar: {
-    width: 20,
-    borderRadius: 10,
-    marginBottom: 8,
-  },
-  barLabel: {
-    fontSize: 10,
-    color: '#6B7280',
-  },
-  macroContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  macroTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  macroItems: {
-    gap: 12,
-  },
-  macroItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  macroBar: {
-    width: 4,
-    height: 20,
-    borderRadius: 2,
-    marginRight: 12,
-  },
-  proteinBar: {
-    backgroundColor: '#6C8BE6',
-  },
-  carbsBar: {
-    backgroundColor: '#BFAFF7',
-  },
-  fatsBar: {
-    backgroundColor: '#EFF3FF',
-  },
-  macroLabel: {
-    fontSize: 14,
-    color: '#1F2937',
-    flex: 1,
-  },
-  macroValue: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  activitySection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  activityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  activityTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  viewAllButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#EFF3FF',
-  },
-  viewAllText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#6C8BE6',
-  },
-  activityItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFF3FF',
-  },
-  activityInfo: {
-    flex: 1,
-  },
-  activityMeal: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1F2937',
-    marginBottom: 2,
-  },
-  activityDate: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
-  activityCalories: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6C8BE6',
   },
   quickActions: {
     backgroundColor: '#FFFFFF',
