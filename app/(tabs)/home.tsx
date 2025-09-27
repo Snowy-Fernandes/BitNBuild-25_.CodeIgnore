@@ -9,7 +9,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { User, MessageCircle, RefreshCw, Sparkles } from 'lucide-react-native';
+import { User, MessageCircle, ChevronRight, Users } from 'lucide-react-native';
 import Svg, { Path, Circle, Rect, G, Polygon } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
@@ -41,27 +41,26 @@ const RecipeIcon = ({ size = 24, color = "#8B5CF6" }) => (
   </Svg>
 );
 
-const MealIcon = ({ type, size = 32 }) => {
-  const getColor = () => {
-    switch (type) {
-      case 'breakfast': return '#F59E0B';
-      case 'lunch': return '#10B981';
-      case 'dinner': return '#8B5CF6';
-      case 'snack': return '#EF4444';
-      default: return '#6B7280';
-    }
-  };
+const CommunityIcon = ({ size = 24, color = "#EF4444" }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx="9" cy="7" r="4" stroke={color} strokeWidth="2" fill={color} fillOpacity="0.1" />
+    <Path d="M3 21V19C3 16.7909 4.79086 15 7 15H11C13.2091 15 15 16.7909 15 19V21" stroke={color} strokeWidth="2" />
+    <Circle cx="16" cy="11" r="3" stroke={color} strokeWidth="2" fill={color} fillOpacity="0.1" />
+    <Path d="M20 21V20C20 18.3431 18.6569 17 17 17H16.5" stroke={color} strokeWidth="2" />
+  </Svg>
+);
 
-  const color = getColor();
-
-  return (
-    <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
-      <Circle cx="16" cy="16" r="14" fill={color} fillOpacity="0.1" />
-      <Circle cx="16" cy="16" r="8" fill={color} fillOpacity="0.2" />
-      <Circle cx="16" cy="16" r="4" fill={color} />
-    </Svg>
-  );
-};
+const CalendarIcon = ({ size = 24, color = "#10B981" }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x="3" y="4" width="18" height="18" rx="2" ry="2" stroke={color} strokeWidth="2" fill={color} fillOpacity="0.1" />
+    <Path d="M16 2v4M8 2v4M3 10h18" stroke={color} strokeWidth="2" strokeLinecap="round" />
+    <Circle cx="8" cy="14" r="1" fill={color} />
+    <Circle cx="12" cy="14" r="1" fill={color} />
+    <Circle cx="16" cy="14" r="1" fill={color} />
+    <Circle cx="8" cy="18" r="1" fill={color} />
+    <Circle cx="12" cy="18" r="1" fill={color} />
+  </Svg>
+);
 
 const SunIcon = ({ size = 20, color = "#F59E0B" }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -91,16 +90,6 @@ const DeliveryIcon = ({ size = 24, color = "#6B7280" }) => (
   </Svg>
 );
 
-const weeklyPlan = [
-  { day: 'Monday', meal: 'Mediterranean Breakfast Bowl', type: 'breakfast', calories: '420 cal' },
-  { day: 'Tuesday', meal: 'Quinoa Power Salad', type: 'lunch', calories: '380 cal' },
-  { day: 'Wednesday', meal: 'Grilled Salmon & Vegetables', type: 'dinner', calories: '520 cal' },
-  { day: 'Thursday', meal: 'Green Smoothie Bowl', type: 'breakfast', calories: '350 cal' },
-  { day: 'Friday', meal: 'Chicken Teriyaki Rice', type: 'dinner', calories: '480 cal' },
-  { day: 'Saturday', meal: 'Avocado Toast Deluxe', type: 'breakfast', calories: '390 cal' },
-  { day: 'Sunday', meal: 'Veggie Stir-Fry Noodles', type: 'dinner', calories: '450 cal' },
-];
-
 const ChatbotFloat = () => (
   <TouchableOpacity
     style={styles.chatbotFloat}
@@ -112,11 +101,6 @@ const ChatbotFloat = () => (
 );
 
 export default function HomeScreen() {
-  const handleRefreshPlan = () => {
-    // Add refresh logic here
-    console.log('Refreshing weekly plan...');
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -163,43 +147,36 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.weeklySection}>
-          <View style={styles.weeklyHeader}>
-            <Text style={styles.weeklyTitle}>Weekly Meal Plan</Text>
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={handleRefreshPlan}
-              accessibilityLabel="Refresh weekly plan"
-              accessibilityRole="button">
-              <RefreshCw size={18} color="#6C8BE6" strokeWidth={2} />
-              <Text style={styles.refreshButtonText}>Enhance</Text>
-            </TouchableOpacity>
+        {/* Community Card */}
+        <TouchableOpacity
+          style={[styles.heroCard, styles.communityCard, { marginHorizontal: 0, marginBottom: 32 }]}
+          onPress={() => router.push('/community')}
+          accessibilityLabel="Join cooking community"
+          accessibilityRole="button">
+          <View style={styles.heroCardIcon}>
+            <CommunityIcon size={32} color="#EF4444" />
           </View>
+          <Text style={styles.heroCardTitle}>Join Our Community</Text>
+          <Text style={styles.heroCardSubtitle}>Share recipes, get inspired, and connect with fellow food lovers</Text>
+        </TouchableOpacity>
 
-          <View style={styles.weeklyList}>
-            {weeklyPlan.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.weeklyCard}
-                accessibilityLabel={`${item.day} ${item.meal}`}
-                accessibilityRole="button">
-                <View style={styles.weeklyCardLeft}>
-                  <MealIcon type={item.type} size={48} />
-                  <View style={styles.weeklyCardInfo}>
-                    <Text style={styles.weeklyDay}>{item.day}</Text>
-                    <Text style={styles.weeklyMeal}>{item.meal}</Text>
-                    <Text style={styles.weeklyCalories}>{item.calories}</Text>
-                  </View>
-                </View>
-                <View style={styles.weeklyCardRight}>
-                  <View style={[styles.mealTypeBadge, { backgroundColor: getMealTypeColor(item.type) }]}>
-                    <Text style={styles.mealTypeText}>{item.type}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
+        {/* Weekly Diet Plan Button */}
+        <TouchableOpacity
+          style={styles.weeklyPlanButton}
+          onPress={() => router.push('/diet-plan')}
+          accessibilityLabel="View weekly diet plan"
+          accessibilityRole="button">
+          <View style={styles.weeklyPlanContent}>
+            <View style={styles.weeklyPlanIcon}>
+              <CalendarIcon size={32} color="#10B981" />
+            </View>
+            <View style={styles.weeklyPlanInfo}>
+              <Text style={styles.weeklyPlanTitle}>Weekly Diet Plan</Text>
+              <Text style={styles.weeklyPlanSubtitle}>Personalized meal plans for every day</Text>
+            </View>
+            <ChevronRight size={24} color="#6B7280" strokeWidth={2} />
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.deliveryBanner}>
           <View style={styles.deliveryIcon}>
@@ -230,16 +207,6 @@ export default function HomeScreen() {
     </SafeAreaView>
   );
 }
-
-const getMealTypeColor = (type) => {
-  switch (type) {
-    case 'breakfast': return '#FEF3C7';
-    case 'lunch': return '#D1FAE5';
-    case 'dinner': return '#EDE9FE';
-    case 'snack': return '#FEE2E2';
-    default: return '#F3F4F6';
-  }
-};
 
 const styles = StyleSheet.create({
   container: {
@@ -322,6 +289,10 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#8B5CF6',
   },
+  communityCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#EF4444',
+  },
   heroCardIcon: {
     width: 72,
     height: 72,
@@ -344,103 +315,47 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
   },
-  weeklySection: {
+  weeklyPlanButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
     marginBottom: 32,
+    borderLeftWidth: 4,
+    borderLeftColor: '#10B981',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  weeklyHeader: {
+  weeklyPlanContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 20,
   },
-  weeklyTitle: {
-    fontSize: 20,
+  weeklyPlanIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  weeklyPlanInfo: {
+    flex: 1,
+  },
+  weeklyPlanTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: '#1F2937',
+    marginBottom: 4,
   },
-  refreshButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  refreshButtonText: {
+  weeklyPlanSubtitle: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#6C8BE6',
-    marginLeft: 6,
-  },
-  weeklyList: {
-    gap: 12,
-  },
-  weeklyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  weeklyCardLeft: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  weeklyCardInfo: {
-    marginLeft: 16,
-    flex: 1,
-  },
-  weeklyDay: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6C8BE6',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  weeklyMeal: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 4,
-  },
-  weeklyCalories: {
-    fontSize: 13,
     color: '#6B7280',
-    fontWeight: '500',
-  },
-  weeklyCardRight: {
-    alignItems: 'flex-end',
-  },
-  mealTypeBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  mealTypeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#374151',
-    textTransform: 'capitalize',
   },
   deliveryBanner: {
     backgroundColor: '#FFFFFF',
@@ -519,5 +434,4 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,
-  },
-});
+  },});community

@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { View, StyleSheet } from 'react-native';
-import { Home, Book, Camera, BarChart3 } from 'lucide-react-native';
+import { Home, Book, Camera, BarChart3, Users } from 'lucide-react-native';
 
 export default function TabLayout() {
   return (
@@ -27,6 +27,15 @@ export default function TabLayout() {
           title: 'My Recipes',
           tabBarIcon: ({ size, color }) => (
             <Book size={size} color={color} strokeWidth={2} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="community"
+        options={{
+          title: 'Community',
+          tabBarIcon: ({ size, color }) => (
+            <Users size={size} color={color} strokeWidth={2} />
           ),
         }}
       />

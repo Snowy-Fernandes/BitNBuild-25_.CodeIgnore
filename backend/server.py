@@ -1,45 +1,98 @@
-# server.py
 """
-Main server entry-point. Registers blueprints and runs Flask.
-It tries to import a recipe_extractor blueprint if present (filename recipe_extractor.py or recipe-extractor.py)
-so your previous extractor file can be kept and will be mounted automatically if it exposes `extractor_bp`.
-"""
+server.py
 
+Top-level Flask app. Imports local modules and registers any blueprints (attributes ending with `_bp`)
+or calls `init_app(app)` when available.
+
+Start the full backend with:
+    python server.py
+"""
+import importlib
+import pkgutil
 import os
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
-import logging
 
-# import our home blueprint
-from home import home_bp
+# Modules to try to import (use underscores for filenames)
+AUTO_MODULES = [
+    "recipe_extractor",
+    "home",
+    "chatbot",
+    "custom_recipe",
+    "fridge",
+    "my_recipes",
+    "nutrition_extractor",
+    "onboarding",
+    "profile",
+    "recipe_detail",
+    "diet_plan",
+    # add other module names here as needed
+]
 
 app = Flask(__name__)
-CORS(app, origins="*")
+CORS(app)  # apply CORS globally
 
-# register home blueprint
-app.register_blueprint(home_bp)
+registered = []
 
-# Try to import recipe_extractor blueprint under a couple of possible module names
-possible_names = ["recipe_extractor", "recipe-extractor", "recipe_extractor.py", "recipe_extractor"]
-found = False
-for mod_name in ["recipe_extractor", "recipe_extractor"]:
+def try_register_module(name: str):
     try:
-        mod = __import__(mod_name)
-        if hasattr(mod, "extractor_bp"):
-            app.register_blueprint(mod.extractor_bp)
-            print(f"Registered extractor blueprint from module: {mod_name}")
-            found = True
-            break
+        mod = importlib.import_module(name)
     except Exception as e:
-        # ignore import errors, just continue
-        pass
+        print(f"[server] could not import module '{name}': {e}")
+        return
 
-if not found:
-    print("No external extractor blueprint found (recipe_extractor.py). Only 'home' endpoints are available.")
+    # 1) register any attribute that ends with _bp and looks like a Flask blueprint
+    for attr in dir(mod):
+        if attr.endswith("_bp"):
+            bp = getattr(mod, attr)
+            try:
+                app.register_blueprint(bp)
+                registered.append(f"{name}.{attr}")
+                print(f"[server] registered blueprint {name}.{attr}")
+            except Exception as e:
+                print(f"[server] failed to register blueprint {name}.{attr}: {e}")
+
+    # 2) register common blueprint names if present
+    for common in ("bp", "blueprint", "home_bp", "extractor_bp", "diet_bp"):
+        if hasattr(mod, common):
+            try:
+                app.register_blueprint(getattr(mod, common))
+                registered.append(f"{name}.{common}")
+                print(f"[server] registered blueprint {name}.{common}")
+            except Exception as e:
+                print(f"[server] failed to register {name}.{common}: {e}")
+
+    # 3) call init_app(app) if present
+    if hasattr(mod, "init_app"):
+        try:
+            mod.init_app(app)
+            registered.append(f"{name}.init_app")
+            print(f"[server] called init_app on {name}")
+        except Exception as e:
+            print(f"[server] init_app failed for {name}: {e}")
+
+# Try to register modules listed in AUTO_MODULES
+for m in AUTO_MODULES:
+    try_register_module(m)
+
+# Optionally autodiscover other local modules in the current directory (helpful if you add modules later)
+for finder, modname, ispkg in pkgutil.iter_modules([os.getcwd()]):
+    # avoid re-importing server itself
+    if modname in ("server",):
+        continue
+    # If the module was explicitly listed and already imported above, skip
+    if modname in AUTO_MODULES:
+        continue
+    # try to register the module
+    try_register_module(modname)
+
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify({
+        "success": True,
+        "message": "Backend running",
+        "registered": registered
+    }), 200
 
 if __name__ == "__main__":
-    # configure logging
-    logging.basicConfig(level=logging.INFO)
-    port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Flask server on http://0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=os.getenv("FLASK_DEBUG", "1") == "1")

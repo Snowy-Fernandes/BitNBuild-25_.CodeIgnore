@@ -1,7 +1,7 @@
 """
-recipe-extractor.py
+recipe_extractor.py
 
-Flask backend for the Recipe Extractor React Native frontend.
+Flask blueprint for the Recipe Extractor backend.
 
 Endpoints:
 - GET  /health
@@ -12,17 +12,11 @@ Endpoints:
                                   "customInstructions": "..."}
 
 Environment variables:
-- GEMINI_API_KEY  (or GOOGLE_API_KEY)   - API key for Google Gen AI / Gemini
-- GEMINI_MODEL    - optional (default "gemini-2.5-flash")
-- GROQ_API_KEY    - API key for Groq
-- GROQ_MODEL      - optional (default "llama-3.3-70b-versatile")
-
-Run:  pip install -r requirements.txt
-      export GEMINI_API_KEY="..."
-      export GROQ_API_KEY="..."
-      python recipe-extractor.py
+- GEMINI_API_KEY  (or GOOGLE_API_KEY)
+- GEMINI_MODEL
+- GROQ_API_KEY
+- GROQ_MODEL
 """
-
 import os
 import re
 import io
@@ -31,8 +25,7 @@ import uuid
 import base64
 import traceback
 from typing import Optional
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Blueprint, request, jsonify
 from PIL import Image
 import requests
 from bs4 import BeautifulSoup
@@ -68,9 +61,8 @@ except Exception as e:
     groq_client = None
     print("groq import failed:", e)
 
-# === App ===
-app = Flask(__name__)
-CORS(app)
+# === Blueprint ===
+extractor_bp = Blueprint("recipe_extractor", __name__)
 
 # In-memory recipe store (for demo). In production use persistent DB.
 RECIPE_STORE = {}
@@ -133,9 +125,7 @@ def call_groq_chat_system(system_prompt: str, user_prompt: str, model: str = GRO
     resp = groq_client.chat.completions.create(
         messages=messages,
         model=model,
-        # you can set temperature, max_tokens etc here if desired
     )
-    # groq returns choices -> first -> message -> content string
     try:
         return resp.choices[0].message.content
     except Exception:
@@ -168,11 +158,11 @@ def fetch_url_text(url: str) -> str:
 
 # === Endpoint implementations ===
 
-@app.route("/health", methods=["GET"])
+@extractor_bp.route("/health", methods=["GET"])
 def health():
     return jsonify({"success": True, "message": "recipe-extractor backend running"}), 200
 
-@app.route("/extractor/photo", methods=["POST"])
+@extractor_bp.route("/extractor/photo", methods=["POST"])
 def extractor_photo():
     try:
         data = request.get_json(force=True)
@@ -199,8 +189,7 @@ def extractor_photo():
             "5) Suggest likely cooking method(s) and an estimated total time (in minutes), servings, and calorie estimate.\n"
             "6) Finally, produce a structured recipe in JSON EXACTLY with the following keys:\n"
             "   title, source, confidence, time, servings, calories, cuisine, difficulty, tags (array),\n"
-            "   ingredients (array of objects {name, quantity, unit}), instructions (array of step strings),\n"
-            "   nutritional_info (object: protein, carbs, fat, fiber)\n"
+            "   ingredients (array of objects {name, quantity, unit}), instructions (array of step strings),\n            nutritional_info (object: protein, carbs, fat, fiber)\n"
             "Output only valid JSON (no additional explanatory text). If you are not confident it is food, set confidence to 'low' and return {\"title\":null, \"reason\":\"not food\"}.\n"
             "Be conservative on quantities if uncertain; use approximate quantities like \"1-2\" or \"to taste\".\n"
         )
@@ -210,7 +199,6 @@ def extractor_photo():
         try:
             gemini_text = call_gemini_image_to_text(pil_image, prompt)
         except Exception as e:
-            # If Gemini not available, fallback to describing image with naive placeholder
             traceback.print_exc()
             return jsonify({"success": False, "error": f"Gemini vision failed: {str(e)}"}), 500
 
@@ -219,7 +207,6 @@ def extractor_photo():
 
         # If parsing failed, fallback to using Groq to convert gemini textual description into JSON
         if parsed is None:
-            # Use Groq: feed gemini_text and ask for JSON-only recipe
             try:
                 system_prompt = "You are a helpful assistant that converts a chef's analysis into a structured JSON recipe object. Output ONLY JSON."
                 user_prompt = (
@@ -242,7 +229,7 @@ def extractor_photo():
         recipe = {
             "id": recipe_id,
             "title": parsed.get("title") or parsed.get("dish") or "Unknown Dish",
-            "image": "🍽️",  # frontend shows emoji, keep simple
+            "image": "🍽️",
             "time": parsed.get("time", "30 mins"),
             "servings": parsed.get("servings", "2"),
             "calories": parsed.get("calories", "estimate"),
@@ -263,7 +250,7 @@ def extractor_photo():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/extractor/dish-name", methods=["POST"])
+@extractor_bp.route("/extractor/dish-name", methods=["POST"])
 def extractor_dish_name():
     """
     Generate a recipe from a dish name (text) using Groq (Llama) model -> structured JSON.
@@ -276,7 +263,6 @@ def extractor_dish_name():
         if not dish:
             return jsonify({"success": False, "error": "Empty dishName"}), 400
 
-        # System prompt instructs the model to output JSON only following the schema
         system_prompt = (
             "You are a world-class chef and recipe writer. When asked for a recipe, output STRICT JSON only (no explanation). "
             "Schema: title, source, confidence (low/medium/high), time, servings, calories, cuisine, difficulty, tags (array), "
@@ -287,7 +273,6 @@ def extractor_dish_name():
         groq_response = call_groq_chat_system(system_prompt, user_prompt)
         parsed = parse_json_from_text(groq_response)
         if parsed is None:
-            # Try again with gentler parsing instruction
             fallback_user = (
                 "The model output must be valid JSON. Convert the following text to the JSON schema described earlier:\n\n"
                 + groq_response
@@ -322,7 +307,7 @@ def extractor_dish_name():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/extractor/url", methods=["POST"])
+@extractor_bp.route("/extractor/url", methods=["POST"])
 def extractor_url():
     """
     Extract information from a restaurant/dish URL and generate a recipe using Groq.
@@ -349,7 +334,6 @@ def extractor_url():
         groq_response = call_groq_chat_system(system_prompt, user_prompt)
         parsed = parse_json_from_text(groq_response)
         if parsed is None:
-            # fallback parse
             groq_response2 = call_groq_chat_system(system_prompt, "Please output valid JSON only. Convert the previous output to JSON.")
             parsed = parse_json_from_text(groq_response2)
 
@@ -380,7 +364,7 @@ def extractor_url():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/extractor/enhance", methods=["POST"])
+@extractor_bp.route("/extractor/enhance", methods=["POST"])
 def extractor_enhance():
     """
     Enhance an existing recipe stored in RECIPE_STORE according to enhancementType.
@@ -440,7 +424,6 @@ def extractor_enhance():
         groq_out = call_groq_chat_system(system_prompt, user_prompt)
         parsed = parse_json_from_text(groq_out)
         if parsed is None:
-            # fallback: ask Groq to re-output valid JSON
             groq_out2 = call_groq_chat_system(system_prompt, "Please output valid JSON only. Convert the previous output to JSON.")
             parsed = parse_json_from_text(groq_out2)
 
@@ -457,7 +440,6 @@ def extractor_enhance():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-# === Run ===
-if __name__ == "__main__":
-    # For dev only; use proper WSGI in prod
-    app.run(host="0.0.0.0", port=5000, debug=True)
+# The module exposes:
+# - extractor_bp (blueprint)
+# - RECIPE_STORE (in-memory store)
