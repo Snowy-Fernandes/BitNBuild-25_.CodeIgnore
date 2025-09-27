@@ -7,7 +7,8 @@ import {
   StyleSheet,
   SafeAreaView,
   Dimensions,
-  Animated,
+  Linking,
+  Alert,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { 
@@ -23,9 +24,8 @@ import {
   DollarSign,
   BookOpen,
   Scale,
-  Heart,
-  Share2,
   Bookmark,
+  ExternalLink,
 } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
@@ -67,6 +67,67 @@ export default function RecipeDetailScreen() {
   const [expandedSteps, setExpandedSteps] = useState(true);
   const [ingredientAmounts, setIngredientAmounts] = useState<Record<number, number>>({});
   const [saved, setSaved] = useState(false);
+
+  // Function to open Zepto
+  const openZepto = async () => {
+    const zeptoUrl = 'https://www.zepto.com';
+    const zeptoAppUrl = 'zepto://';
+    
+    try {
+      // Try to open the app first
+      const canOpen = await Linking.canOpenURL(zeptoAppUrl);
+      if (canOpen) {
+        await Linking.openURL(zeptoAppUrl);
+      } else {
+        // Fallback to website
+        await Linking.openURL(zeptoUrl);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not open Zepto. Please make sure the app is installed or try again later.');
+    }
+  };
+
+  // Function to open Blinkit
+  const openBlinkit = async () => {
+    const blinkitUrl = 'https://www.blinkit.com';
+    const blinkitAppUrl = 'blinkit://';
+    
+    try {
+      // Try to open the app first
+      const canOpen = await Linking.canOpenURL(blinkitAppUrl);
+      if (canOpen) {
+        await Linking.openURL(blinkitAppUrl);
+      } else {
+        // Fallback to website
+        await Linking.openURL(blinkitUrl);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Could not open Blinkit. Please make sure the app is installed or try again later.');
+    }
+  };
+
+  // Function to open grocery delivery with recipe ingredients pre-searched
+  const openGroceryWithIngredients = async (app: 'zepto' | 'blinkit') => {
+    if (!recipe) return;
+    
+    // Create a search query with main ingredients
+    const mainIngredients = ingredients.slice(0, 3).map(ing => ing.name).join(' ');
+    const searchQuery = `${recipe.title} ${mainIngredients}`;
+    const encodedQuery = encodeURIComponent(searchQuery);
+    
+    let url = '';
+    if (app === 'zepto') {
+      url = `https://www.zepto.com/search?q=${encodedQuery}`;
+    } else {
+      url = `https://www.blinkit.com/search?q=${encodedQuery}`;
+    }
+    
+    try {
+      await Linking.openURL(url);
+    } catch (error) {
+      Alert.alert('Error', `Could not open ${app}. Please try again.`);
+    }
+  };
 
   useEffect(() => {
     if (params.recipe) {
@@ -440,22 +501,52 @@ export default function RecipeDetailScreen() {
           </View>
         )}
 
-        {/* Order Section */}
+        {/* Order Section - Now with functional buttons */}
         <View style={styles.orderCard}>
-          <Text style={styles.orderTitle}>Missing ingredients?</Text>
-          <Text style={styles.orderSubtitle}>Get them delivered in minutes</Text>
+          <View style={styles.orderHeader}>
+            <ShoppingCart size={24} color="#FFFFFF" />
+            <View>
+              <Text style={styles.orderTitle}>Missing ingredients?</Text>
+              <Text style={styles.orderSubtitle}>Get them delivered in minutes</Text>
+            </View>
+          </View>
           
           <View style={styles.orderButtons}>
-            <TouchableOpacity style={styles.orderButton}>
-              <ShoppingCart size={18} color="#FFFFFF" />
-              <Text style={styles.orderButtonText}>Order on Zepto</Text>
+            <TouchableOpacity 
+              style={styles.orderButton}
+              onPress={() => openGroceryWithIngredients('zepto')}>
+              <View style={styles.orderButtonContent}>
+                <Text style={styles.orderButtonLogo}>Z</Text>
+                <View style={styles.orderButtonInfo}>
+                  <Text style={styles.orderButtonTitle}>Zepto</Text>
+                  <Text style={styles.orderButtonSubtitle}>10-15 min delivery</Text>
+                </View>
+                <ExternalLink size={16} color="#FFFFFF" />
+              </View>
             </TouchableOpacity>
             
-            <TouchableOpacity style={[styles.orderButton, styles.orderButtonSecondary]}>
-              <ShoppingCart size={18} color="#7C3AED" />
-              <Text style={[styles.orderButtonText, styles.orderButtonTextSecondary]}>Order on Blinkit</Text>
+            <TouchableOpacity 
+              style={[styles.orderButton, styles.orderButtonSecondary]}
+              onPress={() => openGroceryWithIngredients('blinkit')}>
+              <View style={styles.orderButtonContent}>
+                <Text style={[styles.orderButtonLogo, styles.orderButtonLogoSecondary]}>B</Text>
+                <View style={styles.orderButtonInfo}>
+                  <Text style={[styles.orderButtonTitle, styles.orderButtonTitleSecondary]}>Blinkit</Text>
+                  <Text style={[styles.orderButtonSubtitle, styles.orderButtonSubtitleSecondary]}>10 min delivery</Text>
+                </View>
+                <ExternalLink size={16} color="#7C3AED" />
+              </View>
             </TouchableOpacity>
           </View>
+        </View>
+
+        <View style={styles.finalAction}>
+          <TouchableOpacity
+            style={styles.finalGoButton}
+            onPress={handleGoWithRecipe}>
+            <Star size={20} color="#FFFFFF" />
+            <Text style={styles.finalGoButtonText}>Start Cooking This Recipe</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -841,31 +932,29 @@ const styles = StyleSheet.create({
     margin: 24,
     padding: 24,
     borderRadius: 20,
-    marginBottom: 40,
+    marginBottom: 16,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
   },
   orderTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 4,
   },
   orderSubtitle: {
     fontSize: 14,
     color: '#EDE9FE',
-    marginBottom: 20,
   },
   orderButtons: {
-    flexDirection: 'row',
     gap: 12,
   },
   orderButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
     backgroundColor: '#FFFFFF',
-    padding: 14,
+    padding: 16,
     borderRadius: 12,
   },
   orderButtonSecondary: {
@@ -873,12 +962,67 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FFFFFF',
   },
-  orderButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+  orderButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  orderButtonLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#7C3AED',
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+  },
+  orderButtonLogoSecondary: {
+    backgroundColor: '#FFFFFF',
     color: '#7C3AED',
   },
-  orderButtonTextSecondary: {
+  orderButtonInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  orderButtonTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+  orderButtonTitleSecondary: {
+    color: '#FFFFFF',
+  },
+  orderButtonSubtitle: {
+    fontSize: 12,
+    color: '#718096',
+  },
+  orderButtonSubtitleSecondary: {
+    color: '#EDE9FE',
+  },
+  finalAction: {
+    marginBottom: 40,
+    paddingHorizontal: 24,
+  },
+  finalGoButton: {
+    backgroundColor: '#7C3AED',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 64,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  finalGoButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
     color: '#FFFFFF',
   },
 });

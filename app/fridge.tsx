@@ -13,7 +13,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { ChevronLeft, Camera, Upload, Mic, Plus, X, Clock, Users, Search, Sparkles } from 'lucide-react-native';
+import { ChevronLeft, Camera, Upload, Mic, Plus, X, Clock, Users, Search, Sparkles, RefreshCw } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
@@ -50,6 +50,7 @@ export default function FridgeScreen() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
+  const [enhanceLoading, setEnhanceLoading] = useState(false);
 
   const makeApiCall = async (endpoint: string, method: string, data?: any): Promise<ApiResponse> => {
     try {
@@ -82,6 +83,36 @@ export default function FridgeScreen() {
       return response.ok;
     } catch (error) {
       return false;
+    }
+  };
+
+  // Enhanced function to generate new recipes with same ingredients
+  const enhanceRecipes = async () => {
+    if (ingredients.length === 0) {
+      Alert.alert('No Ingredients', 'Please add some ingredients first');
+      return;
+    }
+
+    try {
+      setEnhanceLoading(true);
+      setLoadingStatus('Generating new recipe ideas...');
+      
+      const response = await makeApiCall('/fridge/text', 'POST', {
+        ingredients: ingredients
+      });
+      
+      if (response.success && response.recipes) {
+        setRecipes(response.recipes);
+        setShowResults(true);
+        Alert.alert('Success', 'New recipes generated!');
+      } else {
+        throw new Error(response.error || 'Failed to generate new recipes');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to generate new recipes');
+    } finally {
+      setEnhanceLoading(false);
+      setLoadingStatus('');
     }
   };
 
@@ -370,6 +401,19 @@ export default function FridgeScreen() {
           </View>
         )}
 
+        {/* Enhance Button - Only show when we have recipes */}
+        {showResults && recipes.length > 0 && (
+          <TouchableOpacity
+            style={[styles.enhanceButton, enhanceLoading && styles.enhanceButtonDisabled]}
+            onPress={enhanceRecipes}
+            disabled={enhanceLoading}>
+            <RefreshCw size={18} color="#FFFFFF" />
+            <Text style={styles.enhanceButtonText}>
+              {enhanceLoading ? 'Generating...' : 'Enhance Recipes'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {/* Recipe Results */}
         {showResults && recipes.length > 0 && (
           <View style={styles.recipesSection}>
@@ -599,6 +643,31 @@ const styles = StyleSheet.create({
   },
   addButtonDisabled: {
     opacity: 0.5,
+  },
+  // Enhance Button
+  enhanceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#7C3AED',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 14,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  enhanceButtonDisabled: {
+    opacity: 0.7,
+  },
+  enhanceButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   loadingCard: {
     flexDirection: 'row',
