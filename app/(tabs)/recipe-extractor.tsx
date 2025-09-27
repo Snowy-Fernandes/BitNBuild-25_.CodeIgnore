@@ -257,19 +257,19 @@ export default function RecipeExtractorScreen() {
           <Text style={styles.tipsTitle}>Pro Tips</Text>
           <View style={styles.tipsList}>
             <View style={styles.tipItem}>
-              <Text style={styles.tipEmoji}>📸</Text>
+              <Text style={styles.tipEmoji}></Text>
               <Text style={styles.tipText}>
                 Clear, well-lit photos work best for extraction
               </Text>
             </View>
             <View style={styles.tipItem}>
-              <Text style={styles.tipEmoji}>🔗</Text>
+              <Text style={styles.tipEmoji}></Text>
               <Text style={styles.tipText}>
                 URLs from popular food apps give highest accuracy
               </Text>
             </View>
             <View style={styles.tipItem}>
-              <Text style={styles.tipEmoji}>✏️</Text>
+              <Text style={styles.tipEmoji}></Text>
               <Text style={styles.tipText}>
                 Be specific with dish names for better results
               </Text>

@@ -17,6 +17,63 @@ import {
   Heart,
   BookOpen,
 } from 'lucide-react-native';
+import Svg, { Path, Circle, Rect, G, Polygon } from 'react-native-svg';
+
+// Custom Recipe SVG Icons
+const PastaIcon = ({ size = 32, color = "#6C8BE6" }) => (
+  <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <Circle cx="16" cy="16" r="12" fill={color} fillOpacity="0.1" />
+    <Path
+      d="M8 12C8 12 10 8 16 8C22 8 24 12 24 12C24 16 22 20 16 20C10 20 8 16 8 12Z"
+      fill={color}
+      fillOpacity="0.3"
+    />
+    <Path d="M12 14L20 14M12 16L20 16M12 18L20 18" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+  </Svg>
+);
+
+const ChickenIcon = ({ size = 32, color = "#F59E0B" }) => (
+  <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <Circle cx="16" cy="16" r="12" fill={color} fillOpacity="0.1" />
+    <Path
+      d="M12 10C12 8 14 6 16 6C18 6 20 8 20 10C20 12 22 14 24 16C22 18 20 20 18 22C16 24 14 22 12 20C10 18 8 16 10 14C12 12 12 10 12 10Z"
+      fill={color}
+      fillOpacity="0.3"
+    />
+    <Circle cx="15" cy="12" r="1" fill={color} />
+    <Path d="M10 14C8 16 8 18 10 20" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+  </Svg>
+);
+
+const MushroomIcon = ({ size = 32, color = "#10B981" }) => (
+  <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <Circle cx="16" cy="16" r="12" fill={color} fillOpacity="0.1" />
+    <Path
+      d="M16 10C12 10 9 12 9 16C9 16 12 18 16 18C20 18 23 16 23 16C23 12 20 10 16 10Z"
+      fill={color}
+      fillOpacity="0.3"
+    />
+    <Rect x="15" y="18" width="2" height="6" fill={color} rx="1" />
+    <Circle cx="13" cy="14" r="1" fill={color} />
+    <Circle cx="19" cy="14" r="1" fill={color} />
+  </Svg>
+);
+
+const SaladIcon = ({ size = 32, color = "#22C55E" }) => (
+  <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+    <Circle cx="16" cy="16" r="12" fill={color} fillOpacity="0.1" />
+    <Path
+      d="M8 18C8 14 11 10 16 10C21 10 24 14 24 18C24 22 21 24 16 24C11 24 8 22 8 18Z"
+      fill={color}
+      fillOpacity="0.2"
+    />
+    <Circle cx="12" cy="16" r="2" fill={color} fillOpacity="0.5" />
+    <Circle cx="20" cy="16" r="2" fill={color} fillOpacity="0.5" />
+    <Circle cx="16" cy="14" r="1.5" fill={color} fillOpacity="0.7" />
+    <Circle cx="14" cy="19" r="1" fill={color} />
+    <Circle cx="18" cy="19" r="1" fill={color} />
+  </Svg>
+);
 
 const filterOptions = ['All', 'Veg', 'Non-Veg', 'Others'];
 
@@ -24,7 +81,7 @@ const savedRecipes = [
   {
     id: 1,
     title: 'Mediterranean Pasta',
-    image: '🍝',
+    iconType: 'pasta',
     time: '25 min',
     servings: '4',
     tags: ['Veg', 'Quick'],
@@ -34,7 +91,7 @@ const savedRecipes = [
   {
     id: 2,
     title: 'Spicy Thai Chicken',
-    image: '🍗',
+    iconType: 'chicken',
     time: '30 min',
     servings: '3',
     tags: ['Non-Veg', 'Spicy'],
@@ -44,7 +101,7 @@ const savedRecipes = [
   {
     id: 3,
     title: 'Mushroom Risotto',
-    image: '🍄',
+    iconType: 'mushroom',
     time: '35 min',
     servings: '4',
     tags: ['Veg', 'Comfort'],
@@ -54,7 +111,7 @@ const savedRecipes = [
   {
     id: 4,
     title: 'Quinoa Buddha Bowl',
-    image: '🥗',
+    iconType: 'salad',
     time: '20 min',
     servings: '2',
     tags: ['Veg', 'Healthy'],
@@ -62,6 +119,21 @@ const savedRecipes = [
     isFavorite: false,
   },
 ];
+
+const RecipeIcon = ({ iconType, size = 32 }) => {
+  switch (iconType) {
+    case 'pasta':
+      return <PastaIcon size={size} />;
+    case 'chicken':
+      return <ChickenIcon size={size} />;
+    case 'mushroom':
+      return <MushroomIcon size={size} />;
+    case 'salad':
+      return <SaladIcon size={size} />;
+    default:
+      return <PastaIcon size={size} />;
+  }
+};
 
 const EmptyState = () => (
   <View style={styles.emptyState}>
@@ -94,7 +166,7 @@ export default function MyRecipesScreen() {
     return recipe.tags.includes(selectedFilter);
   });
 
-  const toggleFavorite = (recipeId: number) => {
+  const toggleFavorite = (recipeId) => {
     setRecipes(prev =>
       prev.map(recipe =>
         recipe.id === recipeId
@@ -104,7 +176,7 @@ export default function MyRecipesScreen() {
     );
   };
 
-  const openRecipeDetail = (recipe: any) => {
+  const openRecipeDetail = (recipe) => {
     router.push({
       pathname: '/recipe-detail',
       params: {
@@ -182,7 +254,7 @@ export default function MyRecipesScreen() {
                 accessibilityLabel={`Recipe: ${recipe.title}`}
                 accessibilityRole="button">
                 <View style={styles.recipeImage}>
-                  <Text style={styles.recipeEmoji}>{recipe.image}</Text>
+                  <RecipeIcon iconType={recipe.iconType} size={32} />
                   <TouchableOpacity
                     style={styles.favoriteButton}
                     onPress={() => toggleFavorite(recipe.id)}
@@ -330,9 +402,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 16,
     position: 'relative',
-  },
-  recipeEmoji: {
-    fontSize: 32,
   },
   favoriteButton: {
     position: 'absolute',
