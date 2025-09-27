@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  Dimensions,
+  Animated,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { 
@@ -16,80 +18,143 @@ import {
   Minus,
   ShoppingCart,
   Star,
-  Timer,
+  Utensils,
+  Flame,
+  DollarSign,
+  BookOpen,
+  Scale,
+  Heart,
+  Share2,
+  Bookmark,
 } from 'lucide-react-native';
 
-const recipeSteps = [
-  {
-    id: 1,
-    instruction: 'Heat olive oil in a large pan over medium heat',
-    svg: '🔥',
-    timer: 2,
-  },
-  {
-    id: 2,
-    instruction: 'Add minced garlic and diced onions, cook until fragrant',
-    svg: '🧄',
-    timer: 3,
-  },
-  {
-    id: 3,
-    instruction: 'Add tomatoes and bell peppers, stir well',
-    svg: '🍅',
-    timer: 5,
-  },
-  {
-    id: 4,
-    instruction: 'Season with salt, pepper, and herbs to taste',
-    svg: '🧂',
-    timer: 1,
-  },
-  {
-    id: 5,
-    instruction: 'Simmer for 10-15 minutes until vegetables are tender',
-    svg: '⏰',
-    timer: 15,
-  },
-];
+const { width } = Dimensions.get('window');
 
-const ingredients = [
-  { name: 'Tomatoes', amount: 3, unit: 'medium', cost: 2.50 },
-  { name: 'Onions', amount: 1, unit: 'large', cost: 1.20 },
-  { name: 'Garlic', amount: 4, unit: 'cloves', cost: 0.50 },
-  { name: 'Bell Peppers', amount: 2, unit: 'medium', cost: 3.00 },
-  { name: 'Olive Oil', amount: 2, unit: 'tbsp', cost: 0.80 },
-];
+interface Recipe {
+  id: string;
+  title: string;
+  time: string;
+  servings: string;
+  calories: string;
+  image: string;
+  ingredients: string[];
+  instructions: string[];
+  cuisine?: string;
+  difficulty?: string;
+  costBreakdown?: string;
+}
 
-const substitutions = [
-  {
-    ingredient: 'Tomatoes',
-    substitute: 'Cherry Tomatoes',
-    effect: 'Sweeter flavor, +10% antioxidants',
-  },
-  {
-    ingredient: 'Bell Peppers',
-    substitute: 'Zucchini',
-    effect: 'Lower calories, softer texture',
-  },
-];
+interface IngredientItem {
+  name: string;
+  amount: number;
+  unit: string;
+  cost: number;
+}
+
+interface RecipeStep {
+  id: number;
+  instruction: string;
+  icon: string;
+  timer?: number;
+}
 
 export default function RecipeDetailScreen() {
   const params = useLocalSearchParams();
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
+  const [recipeSteps, setRecipeSteps] = useState<RecipeStep[]>([]);
+  const [ingredients, setIngredients] = useState<IngredientItem[]>([]);
   const [servings, setServings] = useState(2);
   const [expandedSteps, setExpandedSteps] = useState(true);
-  const [ingredientAmounts, setIngredientAmounts] = useState(
-    ingredients.reduce((acc, ing, index) => ({
-      ...acc,
-      [index]: ing.amount,
-    }), {})
-  );
+  const [ingredientAmounts, setIngredientAmounts] = useState<Record<number, number>>({});
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (params.recipe) {
+      try {
+        const parsedRecipe: Recipe = JSON.parse(params.recipe as string);
+        setRecipe(parsedRecipe);
+        
+        if (parsedRecipe.servings) {
+          const initialServings = parseInt(parsedRecipe.servings, 10) || 2;
+          setServings(initialServings);
+        }
+        
+        const steps: RecipeStep[] = parsedRecipe.instructions.map((instruction, index) => {
+          let icon = '🍳';
+          const lowerInstruction = instruction.toLowerCase();
+          
+          if (lowerInstruction.includes('boil') || lowerInstruction.includes('water') || lowerInstruction.includes('simmer')) {
+            icon = '💧';
+          } else if (lowerInstruction.includes('chop') || lowerInstruction.includes('cut') || lowerInstruction.includes('slice')) {
+            icon = '🔪';
+          } else if (lowerInstruction.includes('mix') || lowerInstruction.includes('stir') || lowerInstruction.includes('combine')) {
+            icon = '🥄';
+          } else if (lowerInstruction.includes('bake') || lowerInstruction.includes('oven') || lowerInstruction.includes('roast')) {
+            icon = '🔥';
+          } else if (lowerInstruction.includes('fry') || lowerInstruction.includes('sauté') || lowerInstruction.includes('pan')) {
+            icon = '🍳';
+          } else if (lowerInstruction.includes('season') || lowerInstruction.includes('salt') || lowerInstruction.includes('pepper')) {
+            icon = '🧂';
+          } else if (lowerInstruction.includes('serve') || lowerInstruction.includes('plate') || lowerInstruction.includes('garnish')) {
+            icon = '🍽️';
+          }
+          
+          const timeRegex = /(\d+)[-\s]?(?:minute|min|minutes|hour|hr|hours)/i;
+          const timeMatch = timeRegex.exec(instruction);
+          const timer = timeMatch ? parseInt(timeMatch[1], 10) : undefined;
+          
+          return { id: index + 1, instruction, icon, timer };
+        });
+        setRecipeSteps(steps);
+        
+        let formattedIngredients: IngredientItem[] = [];
+        if (Array.isArray(parsedRecipe.ingredients)) {
+          formattedIngredients = (parsedRecipe.ingredients as string[]).map((ing, idx) => {
+            const regex = /(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?/;
+            const match = regex.exec(ing);
+            
+            let name = ing;
+            let amount = 1;
+            let unit = 'item';
+            
+            if (match) {
+              amount = parseFloat(match[1]) || 1;
+              if (match[2]) unit = match[2];
+              name = ing.replace(regex, '').trim();
+            }
+            
+            if (name === ing) {
+              amount = 1;
+              unit = 'item';
+            }
+            
+            const cost = parseFloat((Math.random() * 3 + 0.5).toFixed(2));
+            return { name, amount, unit, cost };
+          });
+        }
+        
+        setIngredients(formattedIngredients);
+        const initialAmounts = formattedIngredients.reduce((acc, ing, index) => ({
+          ...acc,
+          [index]: ing.amount,
+        }), {});
+        setIngredientAmounts(initialAmounts);
+        
+      } catch (error) {
+        console.error('Error parsing recipe:', error);
+      }
+    }
+  }, [params.recipe]);
 
   const adjustServings = (change: number) => {
+    if (!recipe) return;
+    
     const newServings = Math.max(1, servings + change);
     setServings(newServings);
     
-    // Adjust ingredient amounts proportionally
-    const ratio = newServings / 2; // Base recipe is for 2 servings
+    const baseServings = parseInt(recipe.servings, 10) || 2;
+    const ratio = newServings / baseServings;
+    
     const newAmounts = ingredients.reduce((acc, ing, index) => ({
       ...acc,
       [index]: Math.round(ing.amount * ratio * 10) / 10,
@@ -100,11 +165,12 @@ export default function RecipeDetailScreen() {
   const adjustIngredient = (index: number, change: number) => {
     setIngredientAmounts(prev => ({
       ...prev,
-      [index]: Math.max(0, (prev[index] || ingredients[index].amount) + change),
+      [index]: Math.max(0, (prev[index] || ingredients[index]?.amount || 0) + change),
     }));
   };
 
   const getTotalCost = () => {
+    if (!ingredients.length) return "0.00";
     return ingredients.reduce((total, ing, index) => {
       const currentAmount = ingredientAmounts[index] || ing.amount;
       const ratio = currentAmount / ing.amount;
@@ -113,13 +179,17 @@ export default function RecipeDetailScreen() {
   };
 
   const getNutritionInfo = () => {
+    const baseCalories = recipe?.calories ? parseInt(recipe.calories, 10) : 350;
     const base = {
-      calories: 420,
-      protein: 12,
-      carbs: 45,
-      fats: 18,
+      calories: baseCalories,
+      protein: Math.round(baseCalories * 0.03),
+      carbs: Math.round(baseCalories * 0.11),
+      fats: Math.round(baseCalories * 0.04),
     };
-    const ratio = servings / 2;
+    
+    const baseServings = parseInt(recipe?.servings || '2', 10);
+    const ratio = servings / baseServings;
+    
     return {
       calories: Math.round(base.calories * ratio),
       protein: Math.round(base.protein * ratio),
@@ -134,237 +204,260 @@ export default function RecipeDetailScreen() {
     router.push('/(tabs)/home');
   };
 
+  if (!recipe) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <ChevronLeft size={24} color="#2D3748" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Recipe Details</Text>
+        </View>
+        <View style={[styles.content, {alignItems: 'center', justifyContent: 'center'}]}>
+          <Text style={{fontSize: 16, color: '#718096'}}>Loading recipe details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          accessibilityLabel="Back"
-          accessibilityRole="button">
-          <ChevronLeft size={24} color="#6B7280" strokeWidth={2} />
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <ChevronLeft size={24} color="#2D3748" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {params.title || 'Recipe Details'}
-        </Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{recipe.title}</Text>
+        <TouchableOpacity 
+          style={[styles.saveButton, saved && styles.saveButtonActive]}
+          onPress={() => setSaved(!saved)}>
+          <Bookmark size={20} color={saved ? '#FFFFFF' : '#718096'} fill={saved ? '#FFFFFF' : 'none'} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Hero Section */}
         <View style={styles.heroSection}>
           <View style={styles.recipeImage}>
-            <Text style={styles.recipeEmoji}>🍝</Text>
+            <Text style={styles.recipeEmoji}>{recipe.image || '🍝'}</Text>
           </View>
-          <Text style={styles.recipeTitle}>{params.title || 'Mediterranean Pasta'}</Text>
+          <Text style={styles.recipeTitle}>{recipe.title}</Text>
           
-          <View style={styles.metaInfo}>
+          <View style={styles.recipeMeta}>
             <View style={styles.metaItem}>
-              <Clock size={16} color="#6B7280" strokeWidth={2} />
-              <Text style={styles.metaText}>Prep: 10 min</Text>
+              <Clock size={16} color="#718096" />
+              <Text style={styles.metaText}>{recipe.time}</Text>
             </View>
             <View style={styles.metaItem}>
-              <Timer size={16} color="#6B7280" strokeWidth={2} />
-              <Text style={styles.metaText}>Cook: {params.time || '25 min'}</Text>
-            </View>
-            <View style={styles.metaItem}>
-              <Users size={16} color="#6B7280" strokeWidth={2} />
+              <Users size={16} color="#718096" />
               <Text style={styles.metaText}>{servings} servings</Text>
             </View>
+            {recipe.cuisine && (
+              <View style={styles.metaItem}>
+                <Utensils size={16} color="#718096" />
+                <Text style={styles.metaText}>{recipe.cuisine}</Text>
+              </View>
+            )}
           </View>
 
+          {recipe.difficulty && (
+            <View style={styles.difficultyBadge}>
+              <Text style={styles.difficultyText}>{recipe.difficulty}</Text>
+            </View>
+          )}
+
           <View style={styles.servingsControl}>
-            <Text style={styles.servingsLabel}>Servings:</Text>
+            <Text style={styles.servingsLabel}>Adjust Servings</Text>
             <View style={styles.servingsButtons}>
               <TouchableOpacity
                 style={styles.servingsButton}
                 onPress={() => adjustServings(-1)}
-                disabled={servings <= 1}
-                accessibilityLabel="Decrease servings"
-                accessibilityRole="button">
-                <Minus size={16} color="#6C8BE6" strokeWidth={2} />
+                disabled={servings <= 1}>
+                <Minus size={16} color="#7C3AED" />
               </TouchableOpacity>
               <Text style={styles.servingsNumber}>{servings}</Text>
               <TouchableOpacity
                 style={styles.servingsButton}
-                onPress={() => adjustServings(1)}
-                accessibilityLabel="Increase servings"
-                accessibilityRole="button">
-                <Plus size={16} color="#6C8BE6" strokeWidth={2} />
+                onPress={() => adjustServings(1)}>
+                <Plus size={16} color="#7C3AED" />
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
+        {/* Action Buttons */}
         <View style={styles.actionButtons}>
           <TouchableOpacity
-            style={styles.seeFullButton}
-            onPress={() => setExpandedSteps(!expandedSteps)}
-            accessibilityLabel="See full recipe"
-            accessibilityRole="button">
-            <Text style={styles.seeFullButtonText}>
-              {expandedSteps ? 'Hide Steps' : 'See Full Recipe'}
-            </Text>
+            style={styles.primaryButton}
+            onPress={handleGoWithRecipe}>
+            <Star size={20} color="#FFFFFF" />
+            <Text style={styles.primaryButtonText}>Start Cooking</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
-            style={styles.goWithButton}
-            onPress={handleGoWithRecipe}
-            accessibilityLabel="Go with this recipe"
-            accessibilityRole="button">
-            <Text style={styles.goWithButtonText}>Go with this Recipe</Text>
+            style={styles.secondaryButton}
+            onPress={() => setExpandedSteps(!expandedSteps)}>
+            <BookOpen size={20} color="#7C3AED" />
+            <Text style={styles.secondaryButtonText}>
+              {expandedSteps ? 'Hide Instructions' : 'Show Instructions'}
+            </Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.ingredientsSection}>
-          <Text style={styles.sectionTitle}>Ingredients</Text>
-          {ingredients.map((ingredient, index) => (
-            <View key={index} style={styles.ingredientRow}>
-              <View style={styles.ingredientInfo}>
-                <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                <Text style={styles.ingredientAmount}>
-                  {ingredientAmounts[index] || ingredient.amount} {ingredient.unit}
-                </Text>
-              </View>
-              <View style={styles.ingredientControls}>
-                <TouchableOpacity
-                  style={styles.ingredientButton}
-                  onPress={() => adjustIngredient(index, -0.5)}
-                  accessibilityLabel={`Decrease ${ingredient.name}`}
-                  accessibilityRole="button">
-                  <Minus size={12} color="#6C8BE6" strokeWidth={2} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.ingredientButton}
-                  onPress={() => adjustIngredient(index, 0.5)}
-                  accessibilityLabel={`Increase ${ingredient.name}`}
-                  accessibilityRole="button">
-                  <Plus size={12} color="#6C8BE6" strokeWidth={2} />
-                </TouchableOpacity>
-              </View>
+        {/* Ingredients Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleContainer}>
+              <Scale size={20} color="#7C3AED" />
+              <Text style={styles.sectionTitle}>Ingredients</Text>
             </View>
-          ))}
-        </View>
-
-        <View style={styles.costSection}>
-          <Text style={styles.sectionTitle}>Cost Breakdown</Text>
-          <View style={styles.costCard}>
-            <View style={styles.costHeader}>
-              <Text style={styles.costTotal}>Total: ${getTotalCost()}</Text>
-              <Text style={styles.costPer}>Per serving: ${(getTotalCost() / servings).toFixed(2)}</Text>
-            </View>
-            {ingredients.map((ing, index) => {
-              const currentAmount = ingredientAmounts[index] || ing.amount;
-              const ratio = currentAmount / ing.amount;
-              const itemCost = (ing.cost * ratio).toFixed(2);
-              return (
-                <View key={index} style={styles.costRow}>
-                  <Text style={styles.costItem}>{ing.name}</Text>
-                  <Text style={styles.costAmount}>${itemCost}</Text>
-                </View>
-              );
-            })}
+            <Text style={styles.sectionSubtitle}>{ingredients.length} items</Text>
           </View>
+          
+          {ingredients.length > 0 ? (
+            <View style={styles.ingredientsList}>
+              {ingredients.map((ingredient, index) => (
+                <View key={index} style={styles.ingredientItem}>
+                  <View style={styles.ingredientInfo}>
+                    <Text style={styles.ingredientName}>{ingredient.name}</Text>
+                    <Text style={styles.ingredientAmount}>
+                      {ingredientAmounts[index] || ingredient.amount} {ingredient.unit}
+                    </Text>
+                  </View>
+                  <View style={styles.ingredientControls}>
+                    <TouchableOpacity
+                      style={styles.controlButton}
+                      onPress={() => adjustIngredient(index, -0.5)}>
+                      <Minus size={12} color="#7C3AED" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.controlButton}
+                      onPress={() => adjustIngredient(index, 0.5)}>
+                      <Plus size={12} color="#7C3AED" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.emptyText}>No ingredients information available</Text>
+          )}
         </View>
 
-        <View style={styles.nutritionSection}>
-          <Text style={styles.sectionTitle}>Nutrition Breakdown</Text>
+        {/* Nutrition Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleContainer}>
+              <Flame size={20} color="#7C3AED" />
+              <Text style={styles.sectionTitle}>Nutrition</Text>
+            </View>
+            <Text style={styles.sectionSubtitle}>Per serving</Text>
+          </View>
+          
           <View style={styles.nutritionGrid}>
-            <View style={styles.nutritionCard}>
+            <View style={styles.nutritionItem}>
               <Text style={styles.nutritionValue}>{nutrition.calories}</Text>
               <Text style={styles.nutritionLabel}>Calories</Text>
             </View>
-            <View style={styles.nutritionCard}>
+            <View style={styles.nutritionItem}>
               <Text style={styles.nutritionValue}>{nutrition.protein}g</Text>
               <Text style={styles.nutritionLabel}>Protein</Text>
             </View>
-            <View style={styles.nutritionCard}>
+            <View style={styles.nutritionItem}>
               <Text style={styles.nutritionValue}>{nutrition.carbs}g</Text>
               <Text style={styles.nutritionLabel}>Carbs</Text>
             </View>
-            <View style={styles.nutritionCard}>
+            <View style={styles.nutritionItem}>
               <Text style={styles.nutritionValue}>{nutrition.fats}g</Text>
               <Text style={styles.nutritionLabel}>Fats</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.substitutionsSection}>
-          <Text style={styles.sectionTitle}>Smart Substitutions</Text>
-          {substitutions.map((sub, index) => (
-            <TouchableOpacity key={index} style={styles.substitutionCard}>
-              <View style={styles.substitutionHeader}>
-                <Text style={styles.substitutionFrom}>{sub.ingredient}</Text>
-                <Text style={styles.substitutionArrow}>→</Text>
-                <Text style={styles.substitutionTo}>{sub.substitute}</Text>
-              </View>
-              <Text style={styles.substitutionEffect}>{sub.effect}</Text>
-            </TouchableOpacity>
-          ))}
+        {/* Cost Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionTitleContainer}>
+              <DollarSign size={20} color="#7C3AED" />
+              <Text style={styles.sectionTitle}>Cost Breakdown</Text>
+            </View>
+          </View>
+          
+          <View style={styles.costSummary}>
+            <Text style={styles.costTotal}>Total: ${getTotalCost()}</Text>
+            <Text style={styles.costPerServing}>${(parseFloat(getTotalCost()) / servings).toFixed(2)} per serving</Text>
+          </View>
+          
+          {recipe.costBreakdown ? (
+            <Text style={styles.costBreakdown}>{recipe.costBreakdown}</Text>
+          ) : (
+            <View style={styles.costDetails}>
+              {ingredients.map((ing, index) => {
+                const currentAmount = ingredientAmounts[index] || ing.amount;
+                const ratio = currentAmount / ing.amount;
+                const itemCost = (ing.cost * ratio).toFixed(2);
+                return (
+                  <View key={index} style={styles.costRow}>
+                    <Text style={styles.costItem}>{ing.name}</Text>
+                    <Text style={styles.costAmount}>${itemCost}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
 
-        {expandedSteps && (
-          <View style={styles.stepsSection}>
-            <Text style={styles.sectionTitle}>Instructions</Text>
-            {recipeSteps.map((step, index) => (
-              <View key={step.id} style={styles.stepCard}>
-                <View style={styles.stepHeader}>
-                  <View style={styles.stepIcon}>
-                    <Text style={styles.stepSvg}>{step.svg}</Text>
+        {/* Instructions Section */}
+        {expandedSteps && recipe.instructions && recipe.instructions.length > 0 && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleContainer}>
+                <BookOpen size={20} color="#7C3AED" />
+                <Text style={styles.sectionTitle}>Instructions</Text>
+              </View>
+              <Text style={styles.sectionSubtitle}>{recipe.instructions.length} steps</Text>
+            </View>
+            
+            <View style={styles.instructionsList}>
+              {recipeSteps.map((step, index) => (
+                <View key={step.id} style={styles.instructionStep}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{index + 1}</Text>
                   </View>
                   <View style={styles.stepContent}>
-                    <Text style={styles.stepNumber}>Step {index + 1}</Text>
                     <Text style={styles.stepInstruction}>{step.instruction}</Text>
                     {step.timer && (
                       <View style={styles.stepTimer}>
-                        <Timer size={12} color="#6C8BE6" strokeWidth={2} />
-                        <Text style={styles.stepTimerText}>{step.timer} min</Text>
+                        <Clock size={12} color="#7C3AED" />
+                        <Text style={styles.stepTimerText}>{step.timer} minutes</Text>
                       </View>
                     )}
                   </View>
+                  <Text style={styles.stepIcon}>{step.icon}</Text>
                 </View>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
         )}
 
-        <View style={styles.orderSection}>
+        {/* Order Section */}
+        <View style={styles.orderCard}>
           <Text style={styles.orderTitle}>Missing ingredients?</Text>
+          <Text style={styles.orderSubtitle}>Get them delivered in minutes</Text>
+          
           <View style={styles.orderButtons}>
-            <TouchableOpacity
-              style={styles.orderButton}
-              accessibilityLabel="Order from Zepto"
-              accessibilityRole="button">
-              <ShoppingCart size={16} color="#6C8BE6" strokeWidth={2} />
+            <TouchableOpacity style={styles.orderButton}>
+              <ShoppingCart size={18} color="#FFFFFF" />
               <Text style={styles.orderButtonText}>Order on Zepto</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.orderButton}
-              accessibilityLabel="Order from Blinkit"
-              accessibilityRole="button">
-              <ShoppingCart size={16} color="#6C8BE6" strokeWidth={2} />
-              <Text style={styles.orderButtonText}>Order on Blinkit</Text>
+            
+            <TouchableOpacity style={[styles.orderButton, styles.orderButtonSecondary]}>
+              <ShoppingCart size={18} color="#7C3AED" />
+              <Text style={[styles.orderButtonText, styles.orderButtonTextSecondary]}>Order on Blinkit</Text>
             </TouchableOpacity>
           </View>
         </View>
-
-        <View style={styles.finalAction}>
-          <TouchableOpacity
-            style={styles.finalGoButton}
-            onPress={handleGoWithRecipe}
-            accessibilityLabel="Go with this recipe"
-            accessibilityRole="button">
-            <Star size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text style={styles.finalGoButtonText}>Go with this Recipe</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
-
-      <TouchableOpacity
-        style={styles.chatbotFloat}
-        onPress={() => router.push('/chatbot')}
-        accessibilityLabel="Open chatbot"
-        accessibilityRole="button">
-        <Text style={styles.chatbotIcon}>💬</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -372,329 +465,362 @@ export default function RecipeDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F6F8FB',
+    backgroundColor: '#F7FAFC',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#EFF3FF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F7FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
     flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2D3748',
+  },
+  saveButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F7FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  saveButtonActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
   },
   heroSection: {
     alignItems: 'center',
-    marginBottom: 24,
+    padding: 24,
+    backgroundColor: '#FFFFFF',
+    marginBottom: 16,
   },
   recipeImage: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#EFF3FF',
+    backgroundColor: '#EDE9FE',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   recipeEmoji: {
     fontSize: 48,
   },
   recipeTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1F2937',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#2D3748',
     textAlign: 'center',
     marginBottom: 16,
+    lineHeight: 32,
   },
-  metaInfo: {
+  recipeMeta: {
     flexDirection: 'row',
     gap: 20,
-    marginBottom: 20,
+    marginBottom: 16,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
   metaText: {
-    fontSize: 12,
-    color: '#6B7280',
+    fontSize: 14,
+    color: '#718096',
     fontWeight: '500',
   },
+  difficultyBadge: {
+    backgroundColor: '#F0FFF4',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginBottom: 20,
+  },
+  difficultyText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#38A169',
+    textTransform: 'capitalize',
+  },
   servingsControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
+    backgroundColor: '#F7FAFC',
+    padding: 16,
+    borderRadius: 16,
+    width: '100%',
   },
   servingsLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#2D3748',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   servingsButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF3FF',
-    borderRadius: 20,
-    padding: 4,
+    justifyContent: 'center',
+    gap: 16,
   },
   servingsButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   servingsNumber: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginHorizontal: 16,
-    minWidth: 20,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2D3748',
+    minWidth: 40,
     textAlign: 'center',
   },
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 32,
+    paddingHorizontal: 24,
+    marginBottom: 24,
   },
-  seeFullButton: {
-    flex: 1,
-    backgroundColor: '#EFF3FF',
-    borderRadius: 12,
-    padding: 16,
+  primaryButton: {
+    flex: 2,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 56,
-  },
-  seeFullButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6C8BE6',
-  },
-  goWithButton: {
-    flex: 1,
-    backgroundColor: '#6C8BE6',
-    borderRadius: 12,
+    gap: 8,
+    backgroundColor: '#7C3AED',
     padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 56,
+    borderRadius: 16,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  goWithButtonText: {
+  primaryButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
-  sectionTitle: {
-    fontSize: 20,
+  secondaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  secondaryButtonText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#7C3AED',
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 24,
+    marginBottom: 16,
+    padding: 20,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  ingredientsSection: {
-    marginBottom: 32,
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  ingredientRow: {
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2D3748',
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: '#718096',
+    fontWeight: '500',
+  },
+  ingredientsList: {
+    gap: 8,
+  },
+  ingredientItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F7FAFC',
+    padding: 12,
     borderRadius: 12,
-    padding: 16,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
   },
   ingredientInfo: {
     flex: 1,
   },
   ingredientName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1F2937',
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3748',
     marginBottom: 2,
   },
   ingredientAmount: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 12,
+    color: '#718096',
   },
   ingredientControls: {
     flexDirection: 'row',
     gap: 8,
   },
-  ingredientButton: {
+  controlButton: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#EFF3FF',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  costSection: {
-    marginBottom: 32,
-  },
-  costCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
     borderWidth: 1,
-    borderColor: '#EFF3FF',
+    borderColor: '#E2E8F0',
   },
-  costHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EFF3FF',
-  },
-  costTotal: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-  },
-  costPer: {
+  emptyText: {
     fontSize: 14,
-    color: '#6B7280',
-  },
-  costRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  costItem: {
-    fontSize: 14,
-    color: '#1F2937',
-  },
-  costAmount: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#6C8BE6',
-  },
-  nutritionSection: {
-    marginBottom: 32,
+    color: '#718096',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
   nutritionGrid: {
     flexDirection: 'row',
     gap: 12,
   },
-  nutritionCard: {
+  nutritionItem: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
+    backgroundColor: '#F7FAFC',
+    padding: 16,
+    borderRadius: 12,
   },
   nutritionValue: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#6C8BE6',
+    fontWeight: '700',
+    color: '#7C3AED',
     marginBottom: 4,
   },
   nutritionLabel: {
     fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
+    color: '#718096',
+    fontWeight: '500',
   },
-  substitutionsSection: {
-    marginBottom: 32,
-  },
-  substitutionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  substitutionHeader: {
+  costSummary: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
-  substitutionFrom: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
+  costTotal: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2D3748',
   },
-  substitutionArrow: {
-    fontSize: 16,
-    color: '#6C8BE6',
-    marginHorizontal: 8,
-  },
-  substitutionTo: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6C8BE6',
-  },
-  substitutionEffect: {
+  costPerServing: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#718096',
+  },
+  costBreakdown: {
+    fontSize: 14,
+    color: '#718096',
     fontStyle: 'italic',
+    lineHeight: 20,
   },
-  stepsSection: {
-    marginBottom: 32,
+  costDetails: {
+    gap: 8,
   },
-  stepCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  stepHeader: {
+  costRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  costItem: {
+    fontSize: 14,
+    color: '#2D3748',
+  },
+  costAmount: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#7C3AED',
+  },
+  instructionsList: {
     gap: 16,
   },
-  stepIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EFF3FF',
+  instructionStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  stepNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#7C3AED',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
-  stepSvg: {
-    fontSize: 20,
+  stepNumberText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   stepContent: {
     flex: 1,
   },
-  stepNumber: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#6C8BE6',
-    marginBottom: 4,
-  },
   stepInstruction: {
     fontSize: 14,
-    color: '#1F2937',
+    color: '#2D3748',
     lineHeight: 20,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   stepTimer: {
     flexDirection: 'row',
@@ -703,18 +829,30 @@ const styles = StyleSheet.create({
   },
   stepTimerText: {
     fontSize: 12,
-    color: '#6C8BE6',
+    color: '#7C3AED',
     fontWeight: '500',
   },
-  orderSection: {
-    marginBottom: 32,
+  stepIcon: {
+    fontSize: 20,
+    marginTop: 4,
+  },
+  orderCard: {
+    backgroundColor: '#7C3AED',
+    margin: 24,
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 40,
   },
   orderTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
-    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  orderSubtitle: {
+    fontSize: 14,
+    color: '#EDE9FE',
+    marginBottom: 20,
   },
   orderButtons: {
     flexDirection: 'row',
@@ -722,58 +860,25 @@ const styles = StyleSheet.create({
   },
   orderButton: {
     flex: 1,
-    backgroundColor: '#EFF3FF',
-    borderRadius: 12,
-    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    minHeight: 56,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: 12,
+  },
+  orderButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
   },
   orderButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#6C8BE6',
+    color: '#7C3AED',
   },
-  finalAction: {
-    marginBottom: 40,
-  },
-  finalGoButton: {
-    backgroundColor: '#6C8BE6',
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    minHeight: 64,
-  },
-  finalGoButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  orderButtonTextSecondary: {
     color: '#FFFFFF',
-  },
-  chatbotFloat: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#6C8BE6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  chatbotIcon: {
-    fontSize: 24,
   },
 });

@@ -10,3 +10,4 @@ python-dotenv
 #npm install expo-image-picker
 #uvicorn fridge:app --host 0.0.0.0 --port 8000 --reload
 #export EXPO_PUBLIC_API_BASE_URL="http://192.168.1.104:8000"
+#ifconfig | grep "inet " | grep -v 127.0.0.1
