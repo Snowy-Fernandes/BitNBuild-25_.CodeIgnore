@@ -8,75 +8,282 @@ import {
   StyleSheet,
   SafeAreaView,
   Alert,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { ChevronLeft, Camera, Upload, Mic, Plus, X, Clock, Users } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 
-const sampleIngredients = ['Tomatoes', 'Onions', 'Garlic', 'Bell Peppers', 'Spinach'];
+// Configuration - Use your actual backend URL
+const API_BASE_URL = 'http://192.168.1.101:8001'; // For iOS simulator
+// const API_BASE_URL = 'http://10.0.2.2:5000'; // For Android emulator
+// const API_BASE_URL = 'http://192.168.x.x:5000'; // For physical device
 
-const sampleRecipes = [
-  {
-    id: 1,
-    title: 'Mediterranean Pasta',
-    time: '25 min',
-    servings: '4',
-    calories: '420',
-    image: '🍝',
-    ingredients: ['Tomatoes', 'Garlic', 'Onions'],
-  },
-  {
-    id: 2,
-    title: 'Veggie Stir Fry',
-    time: '15 min',
-    servings: '2',
-    calories: '280',
-    image: '🥢',
-    ingredients: ['Bell Peppers', 'Onions', 'Garlic'],
-  },
-];
+interface Recipe {
+  id: string;
+  title: string;
+  time: string;
+  servings: string;
+  calories: string;
+  image: string;
+  ingredients: string[];
+  instructions?: string[];
+  cuisine?: string;
+  difficulty?: string;
+  costBreakdown?: string;
+}
+
+interface ApiResponse {
+  success: boolean;
+  ingredients?: string[];
+  recipes?: Recipe[];
+  error?: string;
+  message?: string;
+}
 
 export default function FridgeScreen() {
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [inputText, setInputText] = useState('');
   const [showResults, setShowResults] = useState(false);
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState('');
 
-  const addIngredient = () => {
+  // Improved API call function with better error handling
+  const makeApiCall = async (endpoint: string, method: string, data?: any): Promise<ApiResponse> => {
+    try {
+      console.log(`Making API call to: ${API_BASE_URL}${endpoint}`);
+      
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+
+      // Check if response is OK
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('API Success Response:', result);
+      return result as ApiResponse;
+
+    } catch (error: any) {
+      console.error('API Call Failed:', error);
+      
+      // More specific error messages
+      if (error.message.includes('Network request failed')) {
+        throw new Error('Cannot connect to server. Please make sure the backend is running on ' + API_BASE_URL);
+      }
+      
+      throw error;
+    }
+  };
+
+  // Test backend connection
+  const testBackendConnection = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/health`);
+      return response.ok;
+    } catch (error) {
+      console.error('Backend connection test failed:', error);
+      return false;
+    }
+  };
+
+  const addIngredient = async () => {
     if (inputText.trim()) {
-      setIngredients([...ingredients, inputText.trim()]);
+      const newIngredients = [...ingredients, inputText.trim()];
+      setIngredients(newIngredients);
       setInputText('');
-      setShowResults(true);
+      
+      try {
+        setLoading(true);
+        setLoadingStatus('Finding recipes...');
+        
+        const response = await makeApiCall('/fridge/text', 'POST', {
+          ingredients: newIngredients
+        });
+        
+        if (response.success && response.recipes) {
+          setRecipes(response.recipes);
+          setShowResults(true);
+        } else {
+          throw new Error(response.error || 'Failed to get recipe suggestions');
+        }
+      } catch (error: any) {
+        Alert.alert('Error', error.message || 'Failed to get recipe suggestions');
+      } finally {
+        setLoading(false);
+        setLoadingStatus('');
+      }
     }
   };
 
   const removeIngredient = (index: number) => {
-    setIngredients(ingredients.filter((_, i) => i !== index));
+    const newIngredients = ingredients.filter((_, i) => i !== index);
+    setIngredients(newIngredients);
+    
+    if (newIngredients.length > 0) {
+      // Update recipes with new ingredient list
+      updateRecipesWithIngredients(newIngredients);
+    } else {
+      setShowResults(false);
+      setRecipes([]);
+    }
   };
 
-  const addSampleIngredients = () => {
-    setIngredients(sampleIngredients);
-    setShowResults(true);
+  const updateRecipesWithIngredients = async (ingredientsList: string[]) => {
+    try {
+      setLoading(true);
+      setLoadingStatus('Updating recipes...');
+      
+      const response = await makeApiCall('/fridge/text', 'POST', {
+        ingredients: ingredientsList
+      });
+      
+      if (response.success && response.recipes) {
+        setRecipes(response.recipes);
+        setShowResults(true);
+      } else {
+        throw new Error(response.error || 'Failed to update recipe suggestions');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update recipe suggestions');
+    } finally {
+      setLoading(false);
+      setLoadingStatus('');
+    }
   };
 
-  const handlePhotoUpload = () => {
-    Alert.alert('Photo Upload', 'Camera feature will be available soon');
-    addSampleIngredients();
+  const handlePhotoUpload = async () => {
+    try {
+      // Test connection first
+      const isConnected = await testBackendConnection();
+      if (!isConnected) {
+        Alert.alert(
+          'Connection Error', 
+          `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the server is running.`
+        );
+        return;
+      }
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setLoading(true);
+        setLoadingStatus('Analyzing photo...');
+
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        
+        const response = await makeApiCall('/fridge/photo', 'POST', {
+          image: base64Image
+        });
+
+        if (response.success && response.ingredients) {
+          setIngredients(response.ingredients);
+          if (response.recipes) {
+            setRecipes(response.recipes);
+            setShowResults(true);
+          }
+          Alert.alert('Success', 'Ingredients detected from photo!');
+        } else {
+          throw new Error(response.error || 'Failed to extract ingredients from photo');
+        }
+      }
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      Alert.alert('Error', error.message || 'Failed to extract ingredients from photo');
+    } finally {
+      setLoading(false);
+      setLoadingStatus('');
+    }
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      const isConnected = await testBackendConnection();
+      if (!isConnected) {
+        Alert.alert(
+          'Connection Error', 
+          `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the server is running.`
+        );
+        return;
+      }
+
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera permissions to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setLoading(true);
+        setLoadingStatus('Analyzing photo...');
+
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        
+        const response = await makeApiCall('/fridge/photo', 'POST', {
+          image: base64Image
+        });
+
+        if (response.success && response.ingredients) {
+          setIngredients(response.ingredients);
+          if (response.recipes) {
+            setRecipes(response.recipes);
+            setShowResults(true);
+          }
+          Alert.alert('Success', 'Ingredients detected from photo!');
+        } else {
+          throw new Error(response.error || 'Failed to extract ingredients from photo');
+        }
+      }
+    } catch (error: any) {
+      console.error('Camera capture error:', error);
+      Alert.alert('Error', error.message || 'Failed to extract ingredients from photo');
+    } finally {
+      setLoading(false);
+      setLoadingStatus('');
+    }
   };
 
   const handleVoiceInput = () => {
     Alert.alert('Voice Input', 'Voice recognition will be available soon');
-    addSampleIngredients();
+    // In a real app, you'd implement speech-to-text here
   };
 
-  const openRecipeDetail = (recipe: any) => {
+  const openRecipeDetail = (recipe: Recipe) => {
     router.push({
       pathname: '/recipe-detail',
       params: { 
-        recipeId: recipe.id,
-        from: 'fridge',
-        title: recipe.title,
-        time: recipe.time,
-        servings: recipe.servings,
-        calories: recipe.calories,
+        recipe: JSON.stringify(recipe), // Pass the entire recipe object as string
+        from: 'fridge'
       }
     });
   };
@@ -95,6 +302,21 @@ export default function FridgeScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Connection Test Button - For debugging */}
+        <TouchableOpacity 
+          style={styles.connectionTestButton}
+          onPress={async () => {
+            const isConnected = await testBackendConnection();
+            Alert.alert(
+              'Connection Test', 
+              isConnected 
+                ? '✅ Backend is connected successfully!' 
+                : '❌ Cannot connect to backend. Please check if the server is running.'
+            );
+          }}>
+          <Text style={styles.connectionTestText}>Test Backend Connection</Text>
+        </TouchableOpacity>
+
         <Text style={styles.title}>Show me your ingredients</Text>
         <Text style={styles.subtitle}>Upload a photo or add them manually</Text>
 
@@ -103,19 +325,25 @@ export default function FridgeScreen() {
             <TouchableOpacity
               style={styles.photoButton}
               onPress={handlePhotoUpload}
+              disabled={loading}
               accessibilityLabel="Upload photo of ingredients"
               accessibilityRole="button">
               <Upload size={20} color="#6C8BE6" strokeWidth={2} />
-              <Text style={styles.photoButtonText}>Upload Photo</Text>
+              <Text style={styles.photoButtonText}>
+                {loading ? 'Processing...' : 'Upload Photo'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.photoButton}
-              onPress={handlePhotoUpload}
+              onPress={handleTakePhoto}
+              disabled={loading}
               accessibilityLabel="Take photo of ingredients"
               accessibilityRole="button">
               <Camera size={20} color="#6C8BE6" strokeWidth={2} />
-              <Text style={styles.photoButtonText}>Take Photo</Text>
+              <Text style={styles.photoButtonText}>
+                {loading ? 'Processing...' : 'Take Photo'}
+              </Text>
             </TouchableOpacity>
           </View>
 
@@ -134,25 +362,38 @@ export default function FridgeScreen() {
               placeholderTextColor="#6B7280"
               returnKeyType="done"
               onSubmitEditing={addIngredient}
+              editable={!loading}
               accessibilityLabel="Ingredient input"
             />
             <TouchableOpacity
               style={styles.voiceButton}
               onPress={handleVoiceInput}
+              disabled={loading}
               accessibilityLabel="Voice input"
               accessibilityRole="button">
               <Mic size={20} color="#6C8BE6" strokeWidth={2} />
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.addButton}
+              style={[
+                styles.addButton,
+                (!inputText.trim() || loading) && { opacity: 0.5 }
+              ]}
               onPress={addIngredient}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || loading}
               accessibilityLabel="Add ingredient"
               accessibilityRole="button">
               <Plus size={20} color="#FFFFFF" strokeWidth={2} />
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Loading Indicator */}
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color="#6C8BE6" />
+            <Text style={styles.loadingText}>{loadingStatus || 'Processing...'}</Text>
+          </View>
+        )}
 
         {ingredients.length > 0 && (
           <View style={styles.ingredientsList}>
@@ -163,6 +404,7 @@ export default function FridgeScreen() {
                   <Text style={styles.ingredientText}>{ingredient}</Text>
                   <TouchableOpacity
                     onPress={() => removeIngredient(index)}
+                    disabled={loading}
                     accessibilityLabel={`Remove ${ingredient}`}
                     accessibilityRole="button">
                     <X size={16} color="#6B7280" strokeWidth={2} />
@@ -173,11 +415,11 @@ export default function FridgeScreen() {
           </View>
         )}
 
-        {showResults && (
+        {showResults && recipes.length > 0 && (
           <View style={styles.resultsSection}>
             <Text style={styles.resultsTitle}>Recipe Suggestions</Text>
             <View style={styles.recipeGrid}>
-              {sampleRecipes.map((recipe) => (
+              {recipes.map((recipe) => (
                 <TouchableOpacity
                   key={recipe.id}
                   style={styles.recipeCard}
@@ -200,10 +442,29 @@ export default function FridgeScreen() {
                       </View>
                     </View>
                     <Text style={styles.caloriesText}>{recipe.calories} cal</Text>
+                    {recipe.costBreakdown && (
+                      <Text style={styles.costText}>{recipe.costBreakdown}</Text>
+                    )}
                   </View>
                 </TouchableOpacity>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* Help Section when no results */}
+        {!loading && !showResults && (
+          <View style={styles.helpSection}>
+            <Text style={styles.helpTitle}>How to Use</Text>
+            <Text style={styles.helpText}>
+              1. Take a photo of your ingredients or add them manually
+            </Text>
+            <Text style={styles.helpText}>
+              2. We'll identify what you have and suggest recipes
+            </Text>
+            <Text style={styles.helpText}>
+              3. Tap on a recipe to view full details
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -244,6 +505,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1F2937',
+  },
+  // Connection Test Button
+  connectionTestButton: {
+    backgroundColor: '#F1F5F9',
+    padding: 8,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  connectionTestText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
   },
   content: {
     flex: 1,
@@ -330,6 +604,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C8BE6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Loading Indicator
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    marginBottom: 24,
+  },
+  loadingText: {
+    marginLeft: 12,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6C8BE6',
   },
   ingredientsList: {
     marginBottom: 32,
@@ -420,6 +710,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#6C8BE6',
+  },
+  costText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  // Help Section
+  helpSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#EFF3FF',
+  },
+  helpTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 16,
+  },
+  helpText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+    lineHeight: 20,
   },
   chatbotFloat: {
     position: 'absolute',
