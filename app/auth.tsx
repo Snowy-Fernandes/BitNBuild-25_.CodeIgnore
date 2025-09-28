@@ -775,7 +775,7 @@ const handleSocialLogin = async (provider: 'google' | 'apple') => {
       console.log('onAuthStateChange', event);
       if (event === 'SIGNED_IN' && session) {
         // use replace so user can't go back to auth
-        router.replace('/onboarding');
+        router.push('/onboarding');
       }
     });
     subscription = data?.subscription;

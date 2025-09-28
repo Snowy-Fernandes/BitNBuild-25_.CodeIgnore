@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+const supabaseUrl = 'https://vynrbwiatteznxfifixc.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5bnJid2lhdHRlem54ZmlmaXhjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5OTI1MzksImV4cCI6MjA3NDU2ODUzOX0.Z4L2nxoAqyqkSE-kMkyTvnfAGGWT1k9pSOOY7utOxIU';
 
 // Storage adapter for Expo SecureStore (native)
 const ExpoSecureStoreAdapter = {
@@ -59,7 +61,7 @@ const supabaseOptions = {
     persistSession: true,
     detectSessionInUrl: Platform.OS === 'web',
     flowType: 'pkce' as const,
-    debug: false, // Set to true for development debugging
+    debug: false,
   },
   global: {
     headers: {
@@ -75,6 +77,30 @@ const supabaseOptions = {
 
 // Create Supabase client with enhanced configuration
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, supabaseOptions);
+
+// Recipe Interface
+export interface SavedRecipe {
+  id?: string;
+  user_id: string;
+  title: string;
+  description: string;
+  ingredients: string[];
+  instructions: string[];
+  cook_time: string;
+  servings: string;
+  calories: string;
+  image: string;
+  cuisine: string;
+  dietary: string;
+  difficulty: string;
+  external_links?: {
+    zepto: string;
+    blinkit: string;
+  };
+  variety_description?: string;
+  variation_level?: number;
+  created_at?: string;
+}
 
 // Helper function to check if user has a profile
 export const checkUserProfile = async (userId: string) => {
@@ -142,7 +168,6 @@ export const getUserProfile = async (userId: string) => {
 
     if (error) {
       if (error.code === 'PGRST116') {
-        // Profile not found, return default structure
         return { 
           data: {
             id: userId,
@@ -164,6 +189,143 @@ export const getUserProfile = async (userId: string) => {
     return { data, error: null };
   } catch (error) {
     console.error('Error getting user profile:', error);
+    return { data: null, error };
+  }
+};
+
+// Save recipe to Supabase
+export const saveRecipeToSupabase = async (recipe: SavedRecipe) => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User must be logged in to save recipes');
+    }
+
+    const recipeData = {
+      user_id: user.id,
+      title: recipe.title,
+      description: recipe.description,
+      ingredients: recipe.ingredients,
+      instructions: recipe.instructions,
+      cook_time: recipe.cook_time,
+      servings: recipe.servings,
+      calories: recipe.calories,
+      image: recipe.image,
+      cuisine: recipe.cuisine,
+      dietary: recipe.dietary,
+      difficulty: recipe.difficulty,
+      external_links: recipe.external_links || null,
+      variety_description: recipe.variety_description || null,
+      variation_level: recipe.variation_level || 0,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('saved_recipes')
+      .insert([recipeData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error saving recipe to Supabase:', error);
+    return { data: null, error };
+  }
+};
+
+// Check if recipe is already saved
+export const isRecipeSaved = async (recipeTitle: string, userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_recipes')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('title', recipeTitle)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return { isSaved: false, error: null };
+      }
+      throw error;
+    }
+
+    return { isSaved: !!data, error: null };
+  } catch (error) {
+    console.error('Error checking if recipe is saved:', error);
+    return { isSaved: false, error };
+  }
+};
+
+// Get user's saved recipes
+export const getSavedRecipes = async (userId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_recipes')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error getting saved recipes:', error);
+    return { data: null, error };
+  }
+};
+
+// Delete saved recipe
+export const deleteSavedRecipe = async (recipeId: string) => {
+  try {
+    const { error } = await supabase
+      .from('saved_recipes')
+      .delete()
+      .eq('id', recipeId);
+
+    if (error) throw error;
+    return { error: null };
+  } catch (error) {
+    console.error('Error deleting saved recipe:', error);
+    return { error };
+  }
+};
+
+// Update saved recipe
+export const updateSavedRecipe = async (recipeId: string, updates: Partial<SavedRecipe>) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_recipes')
+      .update({
+        ...updates,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', recipeId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error updating saved recipe:', error);
+    return { data: null, error };
+  }
+};
+
+// Get recipe by ID
+export const getRecipeById = async (recipeId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('saved_recipes')
+      .select('*')
+      .eq('id', recipeId)
+      .single();
+
+    if (error) throw error;
+    return { data, error: null };
+  } catch (error) {
+    console.error('Error getting recipe by ID:', error);
     return { data: null, error };
   }
 };
