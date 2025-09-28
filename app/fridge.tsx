@@ -18,8 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 
 const { width } = Dimensions.get('window');
 
-// Configuration - Use your actual backend URL
-const API_BASE_URL = 'http://localhost:5000'; 
+// Configuration - Using port 5000 (main server)
+const API_BASE_URL = 'http://localhost:5000'; // Change to your IP if testing on device
 
 interface Recipe {
   id: string;
@@ -491,6 +491,7 @@ export default function FridgeScreen() {
   );
 }
 
+// ... (styles remain exactly the same as in your original fridge.tsx)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -644,7 +645,6 @@ const styles = StyleSheet.create({
   addButtonDisabled: {
     opacity: 0.5,
   },
-  // Enhance Button
   enhanceButton: {
     flexDirection: 'row',
     alignItems: 'center',

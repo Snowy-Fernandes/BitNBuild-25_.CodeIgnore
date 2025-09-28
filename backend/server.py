@@ -1,6 +1,6 @@
-# server.py - Critical fixes for chatbot registration
+# server.py - Integrated server with fridge endpoints
 """
-Top-level Flask app with proper chatbot registration
+Top-level Flask app with fridge and chatbot integration
 """
 import importlib
 import pkgutil
@@ -18,7 +18,7 @@ load_dotenv()
 AUTO_MODULES = [
     "recipe_extractor",
     "home", 
-    "chatbot",  # Make sure chatbot is included
+    "chatbot",
     "custom_recipe",
     "fridge",
     "my_recipes",
@@ -113,9 +113,9 @@ def register_module_explicitly(module_name, blueprint_name=None):
 # Start initialization
 print("[server] 🚀 Starting server initialization...")
 
-# CRITICAL: Register chatbot first with correct blueprint name
+# CRITICAL: Register all modules
 critical_modules = [
-    ("chatbot", "chatbot_bp"),  # This is the most important fix
+    ("chatbot", "chatbot_bp"),
     ("fridge", "fridge_bp"),
     ("nutrition_extractor", "bp"),
     ("recipe_extractor", "extractor_bp"),
@@ -134,7 +134,7 @@ for m in AUTO_MODULES:
     else:
         print(f"[server] ⏩ skipping already registered: {m}")
 
-# Fallback direct routes for chatbot
+# Fallback direct routes for all modules
 def _safe_register_direct(module_name: str, func_name: str, url_rule: str, methods=("POST",)):
     try:
         mod = importlib.import_module(module_name)
@@ -167,6 +167,14 @@ def _safe_register_direct(module_name: str, func_name: str, url_rule: str, metho
         print(f"[server] ❌ Failed to add direct route {url_rule}: {e}")
         return False
 
+# Fridge-specific fallback routes
+fridge_fallback_routes = [
+    ("fridge", "health", "/health", ("GET",)),
+    ("fridge", "fridge_photo", "/fridge/photo", ("POST",)),
+    ("fridge", "fridge_text", "/fridge/text", ("POST",)),
+    ("fridge", "get_recipe", "/fridge/recipe/<recipe_id>", ("GET",)),
+]
+
 # Chatbot-specific fallback routes
 chatbot_fallback_routes = [
     ("chatbot", "chat_message", "/api/chatbot/message", ("POST", "OPTIONS")),
@@ -176,7 +184,8 @@ chatbot_fallback_routes = [
     ("chatbot", "list_intents", "/api/chatbot/intents", ("GET",)),
 ]
 
-for mod_name, fn_name, url, methods in chatbot_fallback_routes:
+# Register all fallback routes
+for mod_name, fn_name, url, methods in fridge_fallback_routes + chatbot_fallback_routes:
     _safe_register_direct(mod_name, fn_name, url, methods)
 
 # Health check routes
@@ -188,13 +197,18 @@ def root():
         "status": "healthy",
         "version": "2.0.0",
         "registered_modules": registered,
-        "chatbot_endpoints": [
-            "POST /api/chatbot/message",
-            "POST /api/chatbot/voice", 
-            "GET /api/chatbot/health",
-            "POST /api/chatbot/test",
-            "GET /api/chatbot/intents"
-        ]
+        "endpoints": {
+            "fridge": [
+                "POST /fridge/photo",
+                "POST /fridge/text", 
+                "GET /fridge/recipe/<id>"
+            ],
+            "chatbot": [
+                "POST /api/chatbot/message",
+                "POST /api/chatbot/voice", 
+                "GET /api/chatbot/health"
+            ]
+        }
     })
 
 @app.route("/health", methods=["GET"])
@@ -213,6 +227,11 @@ def not_found(error):
         "success": False,
         "error": "Endpoint not found",
         "available_endpoints": {
+            "fridge": {
+                "photo_analysis": "POST /fridge/photo",
+                "text_analysis": "POST /fridge/text",
+                "get_recipe": "GET /fridge/recipe/<id>"
+            },
             "chatbot": {
                 "message": "POST /api/chatbot/message",
                 "voice": "POST /api/chatbot/voice",
@@ -237,24 +256,27 @@ if __name__ == "__main__":
     print(f"[server] ✅ Registered modules: {len(registered)}")
     print(f"[server] ✅ Blueprints: {list(app.blueprints.keys())}")
     
-    # Verify chatbot routes
-    chatbot_routes = []
+    # Verify fridge routes
+    fridge_routes = []
     for rule in app.url_map.iter_rules():
-        if 'chatbot' in rule.rule:
-            chatbot_routes.append({
+        if 'fridge' in rule.rule:
+            fridge_routes.append({
                 "path": rule.rule,
                 "methods": list(rule.methods)
             })
     
-    print(f"[server] 🔍 Chatbot routes: {len(chatbot_routes)}")
-    for route in chatbot_routes:
+    print(f"[server] 🔍 Fridge routes: {len(fridge_routes)}")
+    for route in fridge_routes:
         print(f"[server]   - {route['path']} {route['methods']}")
 
     port = int(os.getenv("PORT", 5000))
     host = os.getenv("HOST", "0.0.0.0")
     
     print(f"[server] 🌐 Starting server on http://{host}:{port}")
-    print(f"[server] 🔗 Chatbot endpoint: http://{host}:{port}/api/chatbot/message")
+    print(f"[server] 🔗 Fridge endpoints:")
+    print(f"[server]   - POST http://{host}:{port}/fridge/photo")
+    print(f"[server]   - POST http://{host}:{port}/fridge/text")
+    print(f"[server]   - GET  http://{host}:{port}/fridge/recipe/<id>")
     
     debug_mode = os.getenv("FLASK_DEBUG", "1") == "1"
     

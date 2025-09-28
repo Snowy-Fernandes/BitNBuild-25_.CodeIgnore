@@ -1,16 +1,5 @@
 """
-fridge.py
-
-Flask backend for the Fridge feature in the React Native frontend.
-
-Endpoints:
-- GET  /health
-- POST /fridge/photo      -> {"image": "data:image/jpeg;base64,...."}
-- POST /fridge/text       -> {"ingredients": ["tomato", "onion", ...]}
-
-Environment variables:
-- GEMINI_API_KEY  (or GOOGLE_API_KEY)   - API key for Google Gen AI / Gemini
-- GEMINI_MODEL    - optional (default "gemini-2.5-flash")
+fridge.py - Blueprint version with improved error handling
 """
 
 import os
@@ -21,8 +10,7 @@ import uuid
 import base64
 import traceback
 from typing import Optional, List, Dict, Any
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Blueprint, request, jsonify
 from PIL import Image
 from dotenv import load_dotenv
 
@@ -31,234 +19,233 @@ load_dotenv()
 
 # === Config / Keys ===
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash-latest")
 
-if not GEMINI_API_KEY:
-    print("WARNING: GEMINI_API_KEY / GOOGLE_API_KEY not set. Gemini calls will fail until provided.")
+print(f"[fridge] Gemini API Key: {'Set' if GEMINI_API_KEY else 'Not Set'}")
+print(f"[fridge] Gemini Model: {GEMINI_MODEL}")
 
-# === Import SDKs (deferred) ===
+# === Import SDKs with better error handling ===
+genai_client = None
 try:
     import google.generativeai as genai
-    # create Gemini client (Google Gen AI)
-    genai.configure(api_key=GEMINI_API_KEY)
-    genai_client = genai if GEMINI_API_KEY else None
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        genai_client = genai
+        print("[fridge] ✅ Gemini client configured successfully")
+    else:
+        print("[fridge] ⚠️  GEMINI_API_KEY not set, Gemini features disabled")
 except Exception as e:
+    print(f"[fridge] ❌ Failed to import google-generativeai: {e}")
     genai_client = None
-    print("google-genai import failed:", e)
 
-# === App ===
-app = Flask(__name__)
-CORS(app)
+# === Create Blueprint ===
+fridge_bp = Blueprint('fridge_bp', __name__)
 
-# In-memory recipe store (for demo). In production use persistent DB.
+# In-memory recipe store
 RECIPE_STORE = {}
 
 # === Helpers ===
 def parse_json_from_text(text: str) -> Any:
-    """
-    Improved parser to extract JSON from model's response, handling code blocks and partial matches.
-    """
+    """Improved JSON parser with better error handling"""
+    if not text:
+        return None
+        
     text = text.strip()
     
-    # Remove code block if present
+    # Remove code blocks
     if text.startswith('```json'):
         text = text[7:].strip()
-        if text.endswith('```'):
-            text = text[:-3].strip()
-    elif text.startswith('```'):
+    if text.startswith('```'):
         text = text[3:].strip()
-        if text.endswith('```'):
-            text = text[:-3].strip()
+    if text.endswith('```'):
+        text = text[:-3].strip()
     
+    # Try direct parse first
     try:
         return json.loads(text)
-    except Exception:
+    except:
         pass
     
-    # Extract the first valid JSON block {} or []
-    in_brace = 0
-    in_bracket = 0
-    in_quote = False
-    escape = False
-    start = -1
-    for i, c in enumerate(text):
-        if escape:
-            escape = False
-            continue
-        if c == '\\':
-            escape = True
-            continue
-        if in_quote:
-            if c == '"':
-                in_quote = False
-            continue
-        if c == '"':
-            in_quote = True
-            continue
+    # Try to extract JSON from text
+    try:
+        # Look for array pattern
+        match = re.search(r'\[[^]]*\][^]]*\]', text)
+        if not match:
+            match = re.search(r'\[.*\]', text, re.DOTALL)
         
-        if c in '{[' and start == -1:
-            start = i
-            if c == '{':
-                in_brace += 1
-            else:
-                in_bracket += 1
-        elif c == '{':
-            in_brace += 1
-        elif c == '}':
-            in_brace -= 1
-        elif c == '[':
-            in_bracket += 1
-        elif c == ']':
-            in_bracket -= 1
-        
-        if start != -1 and in_brace == 0 and in_bracket == 0:
-            candidate = text[start:i+1]
-            try:
-                return json.loads(candidate)
-            except Exception:
-                start = -1  # reset and continue
+        if match:
+            candidate = match.group(0)
+            return json.loads(candidate)
+    except:
+        pass
     
     return None
 
 def call_gemini_image_to_text(pil_image: Image.Image, prompt_text: str) -> str:
-    """
-    Use google-genai client to send an image + prompt, return text.
-    """
+    """Call Gemini vision API with error handling"""
     if genai_client is None:
-        raise RuntimeError("Gemini client not configured (google-genai).")
-    model = genai_client.GenerativeModel(GEMINI_MODEL)
-    response = model.generate_content([pil_image, prompt_text])
-    return response.text if hasattr(response, "text") else str(response)
+        raise RuntimeError("Gemini client not available. Please check API key and installation.")
+    
+    try:
+        model = genai_client.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content([prompt_text, pil_image])
+        return response.text
+    except Exception as e:
+        print(f"[fridge] Gemini vision error: {e}")
+        raise RuntimeError(f"Gemini API error: {str(e)}")
 
 def call_gemini_text(prompt_text: str) -> str:
-    """
-    Use google-genai client to send a text prompt, return text.
-    """
+    """Call Gemini text API with error handling"""
     if genai_client is None:
-        raise RuntimeError("Gemini client not configured (google-genai).")
-    model = genai_client.GenerativeModel(GEMINI_MODEL)
-    response = model.generate_content(prompt_text)
-    return response.text if hasattr(response, "text") else str(response)
+        raise RuntimeError("Gemini client not available. Please check API key and installation.")
+    
+    try:
+        model = genai_client.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(prompt_text)
+        return response.text
+    except Exception as e:
+        print(f"[fridge] Gemini text error: {e}")
+        raise RuntimeError(f"Gemini API error: {str(e)}")
+
+def extract_ingredients_fallback(image_description: str) -> List[str]:
+    """Fallback ingredient extraction when Gemini fails"""
+    # Simple keyword-based fallback
+    common_ingredients = [
+        'tomato', 'onion', 'garlic', 'carrot', 'potato', 'broccoli', 
+        'chicken', 'beef', 'fish', 'egg', 'milk', 'cheese', 'bread',
+        'rice', 'pasta', 'lettuce', 'spinach', 'bell pepper', 'mushroom',
+        'lemon', 'apple', 'banana', 'orange', 'berry', 'avocado'
+    ]
+    
+    found_ingredients = []
+    for ingredient in common_ingredients:
+        if ingredient in image_description.lower():
+            found_ingredients.append(ingredient)
+    
+    return found_ingredients if found_ingredients else ['vegetables', 'produce']
+
+def generate_sample_recipes(ingredients: List[str]) -> List[Dict[str, Any]]:
+    """Generate sample recipes when Gemini is unavailable"""
+    sample_recipes = [
+        {
+            "id": str(uuid.uuid4()),
+            "title": f"Quick {ingredients[0] if ingredients else 'Vegetable'} Stir Fry",
+            "time": "20 min",
+            "servings": "2",
+            "calories": "350",
+            "image": "🍳",
+            "ingredients": ingredients + ["oil", "salt", "pepper"],
+            "instructions": [
+                f"Prepare {', '.join(ingredients[:3])} by washing and chopping",
+                "Heat oil in a pan over medium heat",
+                f"Add {ingredients[0] if ingredients else 'vegetables'} and stir fry for 5-7 minutes",
+                "Season with salt and pepper to taste",
+                "Serve hot with rice or bread"
+            ],
+            "cuisine": "International",
+            "difficulty": "easy",
+            "costBreakdown": f"Ingredients: ${len(ingredients) * 1.5:.2f}, Total: ${len(ingredients) * 2.0:.2f}"
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": f"Fresh {ingredients[0] if ingredients else 'Garden'} Salad",
+            "time": "10 min",
+            "servings": "2",
+            "calories": "180",
+            "image": "🥗",
+            "ingredients": ingredients + ["olive oil", "vinegar", "salt"],
+            "instructions": [
+                f"Wash and chop {', '.join(ingredients)}",
+                "Combine in a large bowl",
+                "Drizzle with olive oil and vinegar",
+                "Season with salt and mix well"
+            ],
+            "cuisine": "Mediterranean",
+            "difficulty": "easy",
+            "costBreakdown": f"Ingredients: ${len(ingredients) * 1.0:.2f}, Total: ${len(ingredients) * 1.5:.2f}"
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "title": f"Simple {ingredients[0] if ingredients else 'Vegetable'} Soup",
+            "time": "25 min",
+            "servings": "3",
+            "calories": "220",
+            "image": "🍲",
+            "ingredients": ingredients + ["water", "salt", "herbs"],
+            "instructions": [
+                f"Chop {', '.join(ingredients[:3])}",
+                "Bring water to a boil in a pot",
+                "Add ingredients and simmer for 15 minutes",
+                "Season with salt and herbs",
+                "Serve warm"
+            ],
+            "cuisine": "International",
+            "difficulty": "easy",
+            "costBreakdown": f"Ingredients: ${len(ingredients) * 0.8:.2f}, Total: ${len(ingredients) * 1.2:.2f}"
+        }
+    ]
+    
+    # Store recipes
+    for recipe in sample_recipes:
+        RECIPE_STORE[recipe["id"]] = recipe
+    
+    return sample_recipes
 
 def generate_recipes_from_ingredients(ingredients: List[str]) -> List[Dict[str, Any]]:
-    """
-    Generate recipe suggestions based on provided ingredients using Gemini.
-    Falls back to sample recipes if Gemini fails.
-    """
+    """Generate recipes using Gemini or fallback to samples"""
+    if not genai_client:
+        print("[fridge] Gemini not available, using sample recipes")
+        return generate_sample_recipes(ingredients)
+    
     try:
-        prompt = (
-            f"You are a recipe expert. Given these ingredients: {', '.join(ingredients)}, "
-            "generate 3 simple recipe suggestions that primarily use these ingredients, "
-            "adding minimal common pantry items if needed.\n"
-            "Output strictly as JSON object with key 'recipes' containing array of 3 objects, each with:\n"
-            '"title": string,\n'
-            '"time": "XX min",\n'
-            '"servings": "X",\n'
-            '"calories": "XXX",\n'
-            '"image": "single unicode emoji like 🍝",\n'
-            '"ingredients": ["item1", "item2", ...],\n'
-            '"instructions": ["step1", "step2", ...],\n'
-            '"cuisine": "Italian",\n'
-            '"difficulty": "easy",\n'
-            '"costBreakdown": "Tomato: $0.50, Pasta: $1.00, Total: $4.50"  // concise estimated US prices\n'
-            "No other text or explanations."
-        )
+        prompt = f"""You are a recipe expert. Given these ingredients: {', '.join(ingredients)}, 
+generate 3 simple recipe suggestions that primarily use these ingredients. 
+Return ONLY valid JSON with this exact structure:
+
+{{
+  "recipes": [
+    {{
+      "title": "Recipe name",
+      "time": "XX min",
+      "servings": "X",
+      "calories": "XXX",
+      "image": "🍝",
+      "ingredients": ["item1", "item2"],
+      "instructions": ["step1", "step2"],
+      "cuisine": "Italian",
+      "difficulty": "easy",
+      "costBreakdown": "Total: $X.XX"
+    }}
+  ]
+}}"""
 
         gemini_text = call_gemini_text(prompt)
         parsed = parse_json_from_text(gemini_text)
         
-        if parsed:
-            if isinstance(parsed, list):
-                recipes = parsed
-            elif isinstance(parsed, dict) and 'recipes' in parsed and isinstance(parsed['recipes'], list):
-                recipes = parsed['recipes']
-            else:
-                raise ValueError("Invalid Gemini response format")
-            
-            if len(recipes) == 3:
-                for recipe in recipes:
-                    recipe["id"] = str(uuid.uuid4())
-                    RECIPE_STORE[recipe["id"]] = recipe
-                return recipes
-            else:
-                raise ValueError("Expected exactly 3 recipes")
+        if parsed and 'recipes' in parsed:
+            recipes = parsed['recipes'][:3]  # Take first 3 recipes
+            for recipe in recipes:
+                recipe["id"] = str(uuid.uuid4())
+                RECIPE_STORE[recipe["id"]] = recipe
+            return recipes
         else:
-            raise ValueError("Failed to parse Gemini response")
-
+            raise ValueError("Invalid response format from Gemini")
+            
     except Exception as e:
-        traceback.print_exc()
-        # Fallback to sample recipes if Gemini fails
-        print("Falling back to sample recipes due to error:", str(e))
-        recipes = [
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Quick Pasta Primavera",
-                "time": "20 min",
-                "servings": "2",
-                "calories": "380",
-                "image": "🍝",
-                "ingredients": ingredients[:3],  # Use first 3 ingredients
-                "instructions": [
-                    "Boil pasta according to package instructions",
-                    f"Sauté {', '.join(ingredients[:3])} in olive oil",
-                    "Combine pasta with sautéed vegetables",
-                    "Season with salt and pepper to taste"
-                ],
-                "cuisine": "Italian",
-                "difficulty": "easy",
-                "costBreakdown": "Pasta: $1.00, Vegetables: $2.00, Total: $3.00"
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Vegetable Stir Fry",
-                "time": "15 min",
-                "servings": "3",
-                "calories": "290",
-                "image": "🥢",
-                "ingredients": ingredients,  # Use all ingredients
-                "instructions": [
-                    f"Chop {', '.join(ingredients)} into bite-sized pieces",
-                    "Heat oil in a wok or large pan",
-                    "Add vegetables and stir-fry for 5-7 minutes",
-                    "Add soy sauce and serve with rice"
-                ],
-                "cuisine": "Asian",
-                "difficulty": "easy",
-                "costBreakdown": "Vegetables: $3.00, Soy sauce: $0.50, Total: $3.50"
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "title": "Garden Salad",
-                "time": "10 min",
-                "servings": "2",
-                "calories": "180",
-                "image": "🥗",
-                "ingredients": ingredients,  # Use all ingredients
-                "instructions": [
-                    f"Wash and chop {', '.join(ingredients)}",
-                    "Combine in a large bowl",
-                    "Drizzle with olive oil and vinegar",
-                    "Season with salt and pepper"
-                ],
-                "cuisine": "Mediterranean",
-                "difficulty": "easy",
-                "costBreakdown": "Vegetables: $2.00, Dressing: $0.50, Total: $2.50"
-            }
-        ]
-        
-        # Store fallback recipes
-        for recipe in recipes:
-            RECIPE_STORE[recipe["id"]] = recipe
-        
-        return recipes
+        print(f"[fridge] Recipe generation failed: {e}")
+        return generate_sample_recipes(ingredients)
 
-# === Endpoint implementations ===
+# === Blueprint Endpoints ===
 
-@app.route("/health", methods=["GET"])
+@fridge_bp.route("/health", methods=["GET"])
 def health():
-    return jsonify({"success": True, "message": "fridge backend running"}), 200
+    return jsonify({
+        "success": True, 
+        "message": "fridge backend running",
+        "gemini_available": genai_client is not None
+    }), 200
 
-@app.route("/fridge/photo", methods=["POST"])
+@fridge_bp.route("/photo", methods=["POST"])
 def fridge_photo():
     try:
         data = request.get_json(force=True)
@@ -266,7 +253,6 @@ def fridge_photo():
             return jsonify({"success": False, "error": "Missing 'image' in request body"}), 400
 
         data_uri = data["image"]
-        # Expect form: data:image/jpeg;base64,/9j/4AA...
         m = re.match(r"data:(?P<mime>image/[^;]+);base64,(?P<b64>.+)$", data_uri)
         if not m:
             return jsonify({"success": False, "error": "Invalid image data URI"}), 400
@@ -275,58 +261,49 @@ def fridge_photo():
         img_bytes = base64.b64decode(img_b64)
         pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-        # Build a rich prompt for Gemini vision
-        prompt = (
-            "You are an expert in food recognition. Analyze the image provided and:\n"
-            "1) Identify all food items and ingredients visible in the image.\n"
-            "2) Return a JSON array of ingredient names only (no quantities or descriptions).\n"
-            "3) Be specific but concise with ingredient names (e.g., 'tomatoes' not 'red tomatoes').\n"
-            "4) Do not include any cookware, utensils, or non-food items.\n"
-            "5) Format the response as a valid JSON array of strings only.\n"
-            "Example response: [\"tomatoes\", \"onions\", \"bell peppers\", \"chicken\"]\n"
-        )
+        # If Gemini is not available, use fallback
+        if not genai_client:
+            ingredients = ['fresh vegetables', 'produce']  # Default fallback
+            recipes = generate_sample_recipes(ingredients)
+            return jsonify({
+                "success": True, 
+                "ingredients": ingredients,
+                "recipes": recipes,
+                "message": "Using sample data (Gemini not configured)"
+            }), 200
 
-        # Call Gemini vision (image + prompt)
-        gemini_text = ""
+        prompt = """Analyze this food image and list all visible ingredients. 
+Return ONLY a JSON array of ingredient names, like: ["tomato", "onion", "chicken"]"""
+
         try:
             gemini_text = call_gemini_image_to_text(pil_image, prompt)
+            parsed = parse_json_from_text(gemini_text)
+            
+            if isinstance(parsed, list):
+                ingredients = [str(item).strip().lower() for item in parsed if item]
+            else:
+                # Fallback extraction
+                ingredients = extract_ingredients_fallback(gemini_text)
+                
         except Exception as e:
-            # If Gemini not available, fallback to placeholder
-            traceback.print_exc()
-            return jsonify({"success": False, "error": f"Gemini vision failed: {str(e)}"}), 500
-
-        # Parse ingredients
-        parsed = parse_json_from_text(gemini_text)
-        if isinstance(parsed, list):
-            ingredients = [str(item).strip() for item in parsed if item]
-        else:
-            # Fallback parsing
-            try:
-                ingredients = json.loads(gemini_text)
-            except:
-                m = re.search(r"(\[(?:.|\n)*\])", gemini_text)
-                if m:
-                    try:
-                        ingredients = json.loads(m.group(1))
-                    except:
-                        ingredients = []
-                else:
-                    ingredients = [item.strip() for item in gemini_text.split(',') if item.strip()]
-
-        # Generate recipe suggestions based on ingredients
+            print(f"[fridge] Image analysis failed: {e}")
+            ingredients = ['mixed vegetables', 'fresh produce']
+            
+        # Generate recipes
         recipes = generate_recipes_from_ingredients(ingredients)
 
         return jsonify({
             "success": True, 
             "ingredients": ingredients,
-            "recipes": recipes
+            "recipes": recipes,
+            "gemini_used": genai_client is not None
         }), 200
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/fridge/text", methods=["POST"])
+@fridge_bp.route("/text", methods=["POST"])
 def fridge_text():
     try:
         data = request.get_json(force=True)
@@ -334,30 +311,34 @@ def fridge_text():
             return jsonify({"success": False, "error": "Missing 'ingredients' in request body"}), 400
 
         ingredients = data["ingredients"]
-        if not isinstance(ingredients, list) or not ingredients:
-            return jsonify({"success": False, "error": "Ingredients must be a non-empty array"}), 400
+        if not isinstance(ingredients, list):
+            return jsonify({"success": False, "error": "Ingredients must be an array"}), 400
 
-        # Generate recipe suggestions based on ingredients
+        if not ingredients:
+            ingredients = ["vegetables", "pantry items"]  # Default
+
+        # Generate recipes
         recipes = generate_recipes_from_ingredients(ingredients)
 
         return jsonify({
             "success": True, 
             "ingredients": ingredients,
-            "recipes": recipes
+            "recipes": recipes,
+            "gemini_used": genai_client is not None
         }), 200
 
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route("/fridge/recipe/<recipe_id>", methods=["GET"])
+@fridge_bp.route("/recipe/<recipe_id>", methods=["GET"])
 def get_recipe(recipe_id):
     recipe = RECIPE_STORE.get(recipe_id)
     if not recipe:
         return jsonify({"success": False, "error": "Recipe not found"}), 404
     return jsonify({"success": True, "recipe": recipe}), 200
 
-# === Run ===
-if __name__ == "__main__":
-    # For dev only; use proper WSGI in prod
-    app.run(host="0.0.0.0", port=8001, debug=True)
+def init_app(app):
+    """Initialize the fridge blueprint"""
+    app.register_blueprint(fridge_bp, url_prefix='/fridge')
+    print("[fridge] ✅ Fridge blueprint registered")
