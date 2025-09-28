@@ -13,7 +13,8 @@ import sys
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from typing import Callable
-
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables from .env file
 # Modules to try to import (use underscores for filenames)
 AUTO_MODULES = [
     "recipe_extractor",
@@ -136,6 +137,8 @@ critical_modules = [
     ("nutrition_extractor", "bp"),  # nutrition_extractor uses 'bp' as blueprint name
     ("recipe_extractor", "extractor_bp"),  # recipe_extractor uses 'extractor_bp'
     ("home", "bp"),
+    ("chatbot", "chatbot_bp"),  # Add this line
+
 ]
 
 for module_name, bp_name in critical_modules:
@@ -221,6 +224,12 @@ def _safe_register_direct(module_name: str, func_name: str, url_rule: str, metho
 # This helps the frontend which POSTs to exactly these paths.
 # --------------------------
 fallback_mappings = [
+    ("chatbot", "chat_message", "/api/chatbot/message", ("POST",)),
+    ("chatbot", "voice_message", "/api/chatbot/voice", ("POST",)),
+    ("chatbot", "supported_languages", "/api/chatbot/languages", ("GET",)),
+    ("chatbot", "health_check", "/api/chatbot/health", ("GET",)),
+    ("chatbot", "list_intents", "/api/chatbot/intents", ("GET",)),
+    ("chatbot", "test_chat", "/api/chatbot/test", ("POST",)),
     # Nutrition Extractor endpoints
     ("nutrition_extractor", "analyze_nutrition", "/api/analyze-nutrition", ("POST",)),
     ("nutrition_extractor", "enhance_nutrition", "/api/enhance-nutrition", ("POST",)),

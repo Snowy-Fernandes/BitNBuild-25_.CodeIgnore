@@ -6,3 +6,10 @@ Pillow
 requests
 beautifulsoup4
 python-dotenv
+requests
+duckduckgo-search
+googletrans==3.1.0a0
+gtts
+wikipedia-api
+speechrecognition
+pyaudio
