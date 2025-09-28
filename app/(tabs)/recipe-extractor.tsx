@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+const [userId, setUserId] = useState('demo-user-id'); // Replace with actual user ID from auth
 import { 
   ChevronLeft, 
   MessageCircle,
@@ -435,7 +436,28 @@ export default function RecipeExtractorScreen() {
       setExtractionStatus('');
     }
   };
+// Save recipe to database
+const saveRecipeToDatabase = async (recipe: Recipe): Promise<boolean> => {
+  try {
+    console.log('Attempting to save recipe to database:', recipe.title);
+    
+    const response = await makeApiCall('/extractor/save', 'POST', {
+      recipe: recipe,
+      user_id: userId
+    });
 
+    if (response.success) {
+      console.log('Recipe saved successfully with ID:', response.recipe_id);
+      return true;
+    } else {
+      console.error('Save failed:', response.error);
+      return false;
+    }
+  } catch (error: any) {
+    console.error('Error saving recipe:', error);
+    return false;
+  }
+};
   // Tab configurations (URL removed)
   const tabs = [
     {

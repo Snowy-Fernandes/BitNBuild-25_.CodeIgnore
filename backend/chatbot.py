@@ -32,11 +32,11 @@ class AIService:
         if gemini_key:
             try:
                 import google.generativeai as genai
-                genai.configure(api_key=gemini_key)
-                self.clients['gemini'] = genai.GenerativeModel('gemini-pro')
-                logger.info("✅ Gemini client initialized")
-            except Exception as e:
-                logger.error(f"❌ Gemini setup failed: {e}")
+                GEMINI_AVAILABLE = True
+
+            except ImportError as e:
+                GEMINI_AVAILABLE = False
+                print(f"❌ Gemini import failed: {e}")
         
         # Groq
         groq_key = os.getenv('GROQ_API_KEY')

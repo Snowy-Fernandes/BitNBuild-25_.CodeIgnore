@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,270 +10,680 @@ import {
   TextInput,
   Modal,
   Alert,
+  RefreshControl,
 } from 'react-native';
-import { 
-  Heart, 
-  MessageCircle, 
-  Share2, 
-  Bookmark, 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Bookmark,
   MoreHorizontal,
   Plus,
   Camera,
-  Send
+  Send,
+  X
 } from 'lucide-react-native';
 
-// Mock data for posts
-const mockPosts = [
+// Enhanced Post interface
+interface User {
+  id: string;
+  name: string;
+  username: string;
+  avatar: string;
+}
+
+interface Post {
+  id: string;
+  user: User;
+  image: string; // This will now store base64 data or URL
+  caption: string;
+  likes: number;
+  comments: Comment[];
+  timeAgo: string;
+  isLiked: boolean;
+  isSaved: boolean;
+  createdAt: number;
+  imageType: 'url' | 'base64'; // Add this to track image type
+}
+
+interface Comment {
+  id: string;
+  userId: string;
+  username: string;
+  text: string;
+  timeAgo: string;
+  createdAt: number;
+}
+
+// Storage keys
+const STORAGE_KEYS = {
+  POSTS: '@community_posts',
+  USER_PROFILE: '@user_profile',
+  LIKED_POSTS: '@liked_posts',
+  SAVED_POSTS: '@saved_posts',
+};
+
+// Default user profile - Updated to snowyfernandes
+const DEFAULT_USER: User = {
+  id: 'current_user',
+  name: 'Snowy Fernandes',
+  username: 'snowyfernandes',
+  avatar: 'data:image/jpeg;base64,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',
+};
+
+// Fixed initial mock posts with working image URLs
+const INITIAL_POSTS: Post[] = [
   {
-    id: 1,
+    id: '1',
     user: {
+      id: '2',
       name: 'Sarah Johnson',
       username: 'sarahjcooks',
       avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150&h=150&fit=crop&crop=face',
     },
     image: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=400&fit=crop',
-    caption: 'Just made this amazing homemade pizza! The secret is in the dough - let it rise for at least 24 hours. Recipe in my bio! 🍕✨ #homemadepizza #cooking #foodie',
+    caption: 'Just made this amazing homemade pizza! The secret is in the dough - let it rise for at least 24 hours. Recipe in my bio!',
     likes: 1247,
-    comments: 89,
+    comments: [
+      {
+        id: '1',
+        userId: '3',
+        username: 'foodlover123',
+        text: 'This looks absolutely delicious!',
+        timeAgo: '1h',
+        createdAt: Date.now() - 3600000,
+      }
+    ],
     timeAgo: '2h',
     isLiked: false,
     isSaved: false,
+    createdAt: Date.now() - 7200000,
+    imageType: 'url',
   },
   {
-    id: 2,
+    id: '2',
     user: {
+      id: '4',
       name: 'Chef Marcus',
       username: 'chefmarcus_official',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
     },
     image: 'https://images.unsplash.com/photo-1546793665-c74683f339c1?w=400&h=400&fit=crop',
-    caption: 'Salad doesn\'t have to be boring! This Mediterranean quinoa bowl is packed with flavors and nutrients. Perfect for meal prep too! 🥗💚',
+    caption: 'Salad doesn\'t have to be boring! This Mediterranean quinoa bowl is packed with flavors and nutrients. Perfect for meal prep too!',
     likes: 892,
-    comments: 43,
+    comments: [],
     timeAgo: '4h',
     isLiked: true,
     isSaved: true,
+    createdAt: Date.now() - 14400000,
+    imageType: 'url',
   },
   {
-    id: 3,
+    id: '3',
     user: {
-      name: 'Emma Wellness',
-      username: 'emmawellness',
-      avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face',
+      id: '5',
+      name: 'Dosa Master',
+      username: 'dosaking',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&crop=face',
     },
-    image: 'https://images.unsplash.com/photo-1551024506-0bccd828d307?w=400&h=400&fit=crop',
-    caption: 'Sunday pancake vibes! These fluffy beauties are made with oat flour and topped with fresh berries. Who else is having a cozy morning? 🥞☀️',
-    likes: 2156,
-    comments: 127,
-    timeAgo: '6h',
+    image: 'https://images.unsplash.com/photo-1586197132057-3d5c58f76c64?w=400&h=400&fit=crop',
+    caption: 'Perfect crispy dosa made this morning! Secret family recipe passed down for generations.',
+    likes: 567,
+    comments: [],
+    timeAgo: '15m',
     isLiked: false,
     isSaved: false,
+    createdAt: Date.now() - 900000,
+    imageType: 'url',
   },
 ];
 
-const mockComments = [
-  { id: 1, user: 'foodlover123', text: 'This looks absolutely delicious! 😍', timeAgo: '1h' },
-  { id: 2, user: 'healthyeats', text: 'Can you share the recipe please?', timeAgo: '45m' },
-  { id: 3, user: 'cookingninja', text: 'Amazing presentation! 👏', timeAgo: '30m' },
-];
+// Enhanced function to get image source with better error handling
+const getImageSource = (image: string, imageType: 'url' | 'base64') => {
+  if (imageType === 'base64') {
+    return { uri: `data:image/jpeg;base64,${image}` };
+  }
+  
+  // For URL images, return with cache control using allowed string literal
+  return { 
+    uri: image,
+    cache: 'force-cache' as 'default' | 'force-cache' | 'reload' | 'only-if-cached' | undefined
+  };
+};
+
+// Utility function to convert image URI to base64
+const convertImageToBase64 = async (uri: string): Promise<string> => {
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        resolve(base64.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Error converting image to base64:', error);
+    throw error;
+  }
+};
 
 export default function CommunityScreen() {
-  const [posts, setPosts] = useState(mockPosts);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [showNewPost, setShowNewPost] = useState(false);
   const [newPostCaption, setNewPostCaption] = useState('');
-  const [selectedPostForComments, setSelectedPostForComments] = useState(null);
+  const [newPostImage, setNewPostImage] = useState<string | null>(null);
+  const [newPostImageType, setNewPostImageType] = useState<'url' | 'base64'>('url');
+  const [selectedPostForComments, setSelectedPostForComments] = useState<Post | null>(null);
   const [newComment, setNewComment] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User>(DEFAULT_USER);
+  const [isConvertingImage, setIsConvertingImage] = useState(false);
+  const [imageLoadErrors, setImageLoadErrors] = useState<Set<string>>(new Set());
 
-  const handleLike = (postId) => {
-    setPosts(prevPosts => 
-      prevPosts.map(post => 
-        post.id === postId 
-          ? { 
-              ...post, 
-              isLiked: !post.isLiked, 
-              likes: post.isLiked ? post.likes - 1 : post.likes + 1 
-            }
-          : post
-      )
-    );
+  // Storage functions
+  const loadFromStorage = async (key: string, defaultValue: any = null) => {
+    try {
+      const data = await AsyncStorage.getItem(key);
+      return data ? JSON.parse(data) : defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
   };
 
-  const handleSave = (postId) => {
-    setPosts(prevPosts => 
-      prevPosts.map(post => 
-        post.id === postId 
+  const saveToStorage = async (key: string, data: any) => {
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify(data));
+    } catch (error) {
+      console.error(`Error saving ${key}:`, error);
+    }
+  };
+
+  // Initialize data on app start
+  useEffect(() => {
+    initializeData();
+  }, []);
+
+  const initializeData = async () => {
+    try {
+      let savedPosts = await loadFromStorage(STORAGE_KEYS.POSTS);
+      if (!savedPosts || savedPosts.length === 0) {
+        savedPosts = INITIAL_POSTS;
+        await saveToStorage(STORAGE_KEYS.POSTS, savedPosts);
+      }
+
+      const updatedPosts = savedPosts.map((post: Post) => ({
+        ...post,
+        timeAgo: getTimeAgo(post.createdAt),
+        comments: post.comments.map((comment: Comment) => ({
+          ...comment,
+          timeAgo: getTimeAgo(comment.createdAt),
+        })),
+      }));
+
+      setPosts(updatedPosts);
+
+      // Always use the default user (snowyfernandes) or load saved user
+      let savedUser = await loadFromStorage(STORAGE_KEYS.USER_PROFILE);
+      if (!savedUser) {
+        savedUser = DEFAULT_USER;
+        await saveToStorage(STORAGE_KEYS.USER_PROFILE, savedUser);
+      }
+      setCurrentUser(savedUser);
+    } catch (error) {
+      console.error('Error initializing data:', error);
+      setPosts(INITIAL_POSTS);
+      setCurrentUser(DEFAULT_USER);
+    }
+  };
+
+  // Calculate time ago
+  const getTimeAgo = (timestamp: number): string => {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (days > 0) return `${days}d`;
+    if (hours > 0) return `${hours}h`;
+    if (minutes > 0) return `${minutes}m`;
+    return 'now';
+  };
+
+  // Generate unique ID
+  const generateId = (): string => {
+    return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  };
+
+  // Refresh posts
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await initializeData();
+    setRefreshing(false);
+  };
+
+  // Handle image load errors
+  const handleImageError = (postId: string) => {
+    setImageLoadErrors(prev => new Set(prev).add(postId));
+  };
+
+  // Get fallback image for failed loads
+  const getFallbackImage = () => {
+    return 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop';
+  };
+
+  // Like handler
+  const handleLike = async (postId: string) => {
+    try {
+      const updatedPosts = posts.map(post => {
+        if (post.id === postId) {
+          const newIsLiked = !post.isLiked;
+          return {
+            ...post,
+            isLiked: newIsLiked,
+            likes: newIsLiked ? post.likes + 1 : post.likes - 1
+          };
+        }
+        return post;
+      });
+
+      setPosts(updatedPosts);
+      await saveToStorage(STORAGE_KEYS.POSTS, updatedPosts);
+    } catch (error) {
+      console.error('Error updating like:', error);
+    }
+  };
+
+  // Save handler
+  const handleSave = async (postId: string) => {
+    try {
+      const updatedPosts = posts.map(post =>
+        post.id === postId
           ? { ...post, isSaved: !post.isSaved }
           : post
-      )
-    );
+      );
+
+      setPosts(updatedPosts);
+      await saveToStorage(STORAGE_KEYS.POSTS, updatedPosts);
+    } catch (error) {
+      console.error('Error updating save:', error);
+    }
   };
 
-  const handleShare = (post) => {
+  // Share handler
+  const handleShare = (post: Post) => {
     Alert.alert('Share Post', `Share "${post.user.name}'s" recipe with friends?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Share', onPress: () => console.log('Sharing post...') },
+      { 
+        text: 'Share', 
+        onPress: () => {
+          Alert.alert('Shared!', 'Post shared successfully!');
+        }
+      },
     ]);
   };
 
-  const handleNewPost = () => {
-    if (newPostCaption.trim()) {
-      const newPost = {
-        id: posts.length + 1,
-        user: {
-          name: 'You',
-          username: 'your_username',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-        },
-        image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=400&h=400&fit=crop',
-        caption: newPostCaption,
+  // Image picker for new posts
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload photos.');
+        return;
+      }
+
+      setIsConvertingImage(true);
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        if (result.assets[0].base64) {
+          setNewPostImage(result.assets[0].base64);
+          setNewPostImageType('base64');
+        } else {
+          const base64Data = await convertImageToBase64(result.assets[0].uri);
+          setNewPostImage(base64Data);
+          setNewPostImageType('base64');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    } finally {
+      setIsConvertingImage(false);
+    }
+  };
+
+  // Take photo for new posts
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera permissions to take photos.');
+        return;
+      }
+
+      setIsConvertingImage(true);
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        if (result.assets[0].base64) {
+          setNewPostImage(result.assets[0].base64);
+          setNewPostImageType('base64');
+        } else {
+          const base64Data = await convertImageToBase64(result.assets[0].uri);
+          setNewPostImage(base64Data);
+          setNewPostImageType('base64');
+        }
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    } finally {
+      setIsConvertingImage(false);
+    }
+  };
+
+  // New post handler
+  const handleNewPost = async () => {
+    if (!newPostCaption.trim()) {
+      Alert.alert('Caption Required', 'Please add a caption for your post');
+      return;
+    }
+
+    if (!newPostImage) {
+      Alert.alert('Image Required', 'Please add an image to your post');
+      return;
+    }
+
+    if (isConvertingImage) {
+      Alert.alert('Please Wait', 'Image is still being processed');
+      return;
+    }
+
+    try {
+      const newPost: Post = {
+        id: generateId(),
+        user: currentUser, // This will now be snowyfernandes
+        image: newPostImage,
+        caption: newPostCaption.trim(),
         likes: 0,
-        comments: 0,
+        comments: [],
         timeAgo: 'now',
         isLiked: false,
         isSaved: false,
+        createdAt: Date.now(),
+        imageType: newPostImageType,
       };
-      
-      setPosts([newPost, ...posts]);
+
+      const updatedPosts = [newPost, ...posts];
+      setPosts(updatedPosts);
+      await saveToStorage(STORAGE_KEYS.POSTS, updatedPosts);
+
       setNewPostCaption('');
+      setNewPostImage(null);
+      setNewPostImageType('url');
       setShowNewPost(false);
       Alert.alert('Success', 'Your recipe has been shared with the community!');
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post');
     }
   };
 
-  const handleAddComment = () => {
-    if (newComment.trim()) {
-      // In a real app, you would add the comment to the post
+  // Add comment handler
+  const handleAddComment = async () => {
+    if (!newComment.trim() || !selectedPostForComments) return;
+
+    try {
+      const newCommentObj: Comment = {
+        id: generateId(),
+        userId: currentUser.id,
+        username: currentUser.username, // This will be snowyfernandes
+        text: newComment.trim(),
+        timeAgo: 'now',
+        createdAt: Date.now(),
+      };
+
+      const updatedPosts = posts.map(post => {
+        if (post.id === selectedPostForComments.id) {
+          return {
+            ...post,
+            comments: [...post.comments, newCommentObj]
+          };
+        }
+        return post;
+      });
+
+      setPosts(updatedPosts);
+      await saveToStorage(STORAGE_KEYS.POSTS, updatedPosts);
+      
       setNewComment('');
       Alert.alert('Success', 'Comment added!');
       setSelectedPostForComments(null);
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      Alert.alert('Error', 'Failed to add comment');
     }
   };
 
-  const PostCard = ({ post }) => (
-    <View style={styles.postCard}>
-      {/* Post Header */}
-      <View style={styles.postHeader}>
-        <View style={styles.userInfo}>
-          <Image source={{ uri: post.user.avatar }} style={styles.avatar} />
-          <View style={styles.userDetails}>
-            <Text style={styles.userName}>{post.user.name}</Text>
-            <Text style={styles.username}>@{post.user.username}</Text>
+  // Enhanced Post Card Component with better image handling
+  const PostCard = ({ post }: { post: Post }) => {
+    const [imageError, setImageError] = useState(false);
+    
+    const imageSource = imageError 
+      ? { uri: getFallbackImage() }
+      : getImageSource(post.image, post.imageType);
+
+    return (
+      <View style={styles.postCard}>
+        {/* Post Header */}
+        <View style={styles.postHeader}>
+          <View style={styles.userInfo}>
+            <Image 
+              source={{ uri: post.user.avatar }} 
+              style={styles.avatar}
+              onError={() => console.log('Avatar load error')}
+            />
+            <View style={styles.userDetails}>
+              <Text style={styles.userName}>{post.user.name}</Text>
+              <Text style={styles.username}>@{post.user.username}</Text>
+            </View>
+          </View>
+          <View style={styles.postMeta}>
+            <Text style={styles.timeAgo}>{post.timeAgo}</Text>
+            <TouchableOpacity style={styles.moreButton}>
+              <MoreHorizontal size={20} color="#6B7280" />
+            </TouchableOpacity>
           </View>
         </View>
-        <View style={styles.postMeta}>
-          <Text style={styles.timeAgo}>{post.timeAgo}</Text>
-          <TouchableOpacity style={styles.moreButton}>
-            <MoreHorizontal size={20} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* Post Image */}
-      <Image source={{ uri: post.image }} style={styles.postImage} />
+        {/* Post Image with Error Handling */}
+        <Image 
+          source={imageSource}
+          style={styles.postImage}
+          onError={() => setImageError(true)}
+          resizeMode="cover"
+        />
 
-      {/* Post Actions */}
-      <View style={styles.postActions}>
-        <View style={styles.leftActions}>
-          <TouchableOpacity 
+        {/* Post Actions */}
+        <View style={styles.postActions}>
+          <View style={styles.leftActions}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => handleLike(post.id)}>
+              <Heart
+                size={24}
+                color={post.isLiked ? "#EF4444" : "#6B7280"}
+                fill={post.isLiked ? "#EF4444" : "none"}
+                strokeWidth={2}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setSelectedPostForComments(post)}>
+              <MessageCircle size={24} color="#6B7280" strokeWidth={2} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => handleShare(post)}>
+              <Share2 size={24} color="#6B7280" strokeWidth={2} />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => handleLike(post.id)}
-          >
-            <Heart 
-              size={24} 
-              color={post.isLiked ? "#EF4444" : "#6B7280"} 
-              fill={post.isLiked ? "#EF4444" : "none"}
+            onPress={() => handleSave(post.id)}>
+            <Bookmark
+              size={24}
+              color={post.isSaved ? "#6C8BE6" : "#6B7280"}
+              fill={post.isSaved ? "#6C8BE6" : "none"}
               strokeWidth={2}
             />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => setSelectedPostForComments(post)}
-          >
-            <MessageCircle size={24} color="#6B7280" strokeWidth={2} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => handleShare(post)}
-          >
-            <Share2 size={24} color="#6B7280" strokeWidth={2} />
-          </TouchableOpacity>
         </View>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleSave(post.id)}
-        >
-          <Bookmark 
-            size={24} 
-            color={post.isSaved ? "#6C8BE6" : "#6B7280"} 
-            fill={post.isSaved ? "#6C8BE6" : "none"}
-            strokeWidth={2}
-          />
-        </TouchableOpacity>
-      </View>
 
-      {/* Post Stats */}
-      <View style={styles.postStats}>
-        <Text style={styles.likesCount}>{post.likes.toLocaleString()} likes</Text>
-        {post.comments > 0 && (
-          <TouchableOpacity onPress={() => setSelectedPostForComments(post)}>
-            <Text style={styles.commentsCount}>View all {post.comments} comments</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        {/* Post Stats */}
+        <View style={styles.postStats}>
+          <Text style={styles.likesCount}>{post.likes.toLocaleString()} likes</Text>
+          {post.comments.length > 0 && (
+            <TouchableOpacity onPress={() => setSelectedPostForComments(post)}>
+              <Text style={styles.commentsCount}>
+                View all {post.comments.length} comments
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
-      {/* Post Caption */}
-      <View style={styles.captionContainer}>
-        <Text style={styles.caption}>
-          <Text style={styles.captionUsername}>{post.user.username} </Text>
-          {post.caption}
-        </Text>
+        {/* Post Caption */}
+        <View style={styles.captionContainer}>
+          <Text style={styles.caption}>
+            <Text style={styles.captionUsername}>{post.user.username} </Text>
+            {post.caption}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Community</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.newPostButton}
-          onPress={() => setShowNewPost(true)}
-        >
+          onPress={() => setShowNewPost(true)}>
           <Plus size={24} color="#FFFFFF" strokeWidth={2} />
         </TouchableOpacity>
       </View>
 
       {/* Posts Feed */}
-      <ScrollView style={styles.feed} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.feed} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }>
         {posts.map((post) => (
           <PostCard key={post.id} post={post} />
         ))}
+        
+        {posts.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No posts yet. Be the first to share!</Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* New Post Modal */}
       <Modal
         visible={showNewPost}
         animationType="slide"
-        presentationStyle="pageSheet"
-      >
+        presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setShowNewPost(false)}>
+            <TouchableOpacity onPress={() => {
+              setShowNewPost(false);
+              setNewPostImage(null);
+              setNewPostCaption('');
+              setNewPostImageType('url');
+            }}>
               <Text style={styles.cancelButton}>Cancel</Text>
             </TouchableOpacity>
             <Text style={styles.modalTitle}>New Post</Text>
-            <TouchableOpacity onPress={handleNewPost}>
-              <Text style={styles.shareButton}>Share</Text>
+            <TouchableOpacity onPress={handleNewPost} disabled={isConvertingImage}>
+              <Text style={[styles.shareButton, isConvertingImage && styles.disabledButton]}>
+                {isConvertingImage ? 'Processing...' : 'Share'}
+              </Text>
             </TouchableOpacity>
           </View>
           
-          <View style={styles.newPostContent}>
-            <TouchableOpacity style={styles.imageUpload}>
-              <Camera size={32} color="#6B7280" />
-              <Text style={styles.imageUploadText}>Add Photo</Text>
-            </TouchableOpacity>
-            
+          <ScrollView style={styles.newPostContent}>
+            {/* Image Section */}
+            <View style={styles.imageSection}>
+              {newPostImage ? (
+                <View style={styles.selectedImageContainer}>
+                  <Image 
+                    source={getImageSource(newPostImage, newPostImageType)} 
+                    style={styles.selectedImage} 
+                  />
+                  <TouchableOpacity
+                    style={styles.removeImageButton}
+                    onPress={() => {
+                      setNewPostImage(null);
+                      setNewPostImageType('url');
+                    }}>
+                    <X size={20} color="#FFFFFF" strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.imageUpload}>
+                  <Camera size={32} color="#6B7280" />
+                  <Text style={styles.imageUploadText}>Add Photo</Text>
+                  <View style={styles.imageButtons}>
+                    <TouchableOpacity 
+                      style={styles.imageButton} 
+                      onPress={takePhoto}
+                      disabled={isConvertingImage}
+                    >
+                      <Text style={styles.imageButtonText}>
+                        {isConvertingImage ? 'Processing...' : 'Camera'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                      style={styles.imageButton} 
+                      onPress={pickImage}
+                      disabled={isConvertingImage}
+                    >
+                      <Text style={styles.imageButtonText}>
+                        {isConvertingImage ? 'Processing...' : 'Gallery'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            {/* Caption Input */}
             <TextInput
               style={styles.captionInput}
               placeholder="Share your recipe or cooking experience..."
@@ -281,8 +691,9 @@ export default function CommunityScreen() {
               value={newPostCaption}
               onChangeText={setNewPostCaption}
               maxLength={500}
+              textAlignVertical="top"
             />
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </Modal>
 
@@ -290,8 +701,7 @@ export default function CommunityScreen() {
       <Modal
         visible={selectedPostForComments !== null}
         animationType="slide"
-        presentationStyle="pageSheet"
-      >
+        presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setSelectedPostForComments(null)}>
@@ -302,18 +712,24 @@ export default function CommunityScreen() {
           </View>
           
           <ScrollView style={styles.commentsContainer}>
-            {mockComments.map((comment) => (
+            {selectedPostForComments?.comments.map((comment) => (
               <View key={comment.id} style={styles.comment}>
-                <View style={styles.commentAvatar} />
+                <Image source={{ uri: currentUser.avatar }} style={styles.commentAvatar} />
                 <View style={styles.commentContent}>
                   <Text style={styles.commentText}>
-                    <Text style={styles.commentUsername}>{comment.user} </Text>
+                    <Text style={styles.commentUsername}>{comment.username} </Text>
                     {comment.text}
                   </Text>
                   <Text style={styles.commentTime}>{comment.timeAgo}</Text>
                 </View>
               </View>
             ))}
+            
+            {selectedPostForComments?.comments.length === 0 && (
+              <View style={styles.noCommentsContainer}>
+                <Text style={styles.noCommentsText}>No comments yet. Be the first to comment!</Text>
+              </View>
+            )}
           </ScrollView>
           
           <View style={styles.commentInput}>
@@ -324,10 +740,9 @@ export default function CommunityScreen() {
               onChangeText={setNewComment}
               multiline
             />
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.commentSendButton}
-              onPress={handleAddComment}
-            >
+              onPress={handleAddComment}>
               <Send size={20} color="#6C8BE6" strokeWidth={2} />
             </TouchableOpacity>
           </View>
@@ -370,6 +785,17 @@ const styles = StyleSheet.create({
   },
   feed: {
     flex: 1,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 50,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   postCard: {
     backgroundColor: '#FFFFFF',
@@ -499,8 +925,15 @@ const styles = StyleSheet.create({
     color: '#6C8BE6',
     fontWeight: '600',
   },
+  disabledButton: {
+    opacity: 0.5,
+  },
   newPostContent: {
+    flex: 1,
     padding: 24,
+  },
+  imageSection: {
+    marginBottom: 20,
   },
   imageUpload: {
     height: 200,
@@ -517,6 +950,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6B7280',
     marginTop: 8,
+    marginBottom: 12,
+  },
+  imageButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  imageButton: {
+    backgroundColor: '#6C8BE6',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  imageButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  selectedImageContainer: {
+    position: 'relative',
+  },
+  selectedImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   captionInput: {
     backgroundColor: '#FFFFFF',
@@ -558,6 +1026,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 4,
+  },
+  noCommentsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noCommentsText: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   commentInput: {
     flexDirection: 'row',

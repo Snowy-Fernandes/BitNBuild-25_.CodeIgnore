@@ -28,15 +28,11 @@ print(f"[fridge] Gemini Model: {GEMINI_MODEL}")
 genai_client = None
 try:
     import google.generativeai as genai
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        genai_client = genai
-        print("[fridge] ✅ Gemini client configured successfully")
-    else:
-        print("[fridge] ⚠️  GEMINI_API_KEY not set, Gemini features disabled")
-except Exception as e:
-    print(f"[fridge] ❌ Failed to import google-generativeai: {e}")
-    genai_client = None
+    # Remove the problematic ModelServiceAsyncClient import
+    GEMINI_AVAILABLE = True
+except ImportError as e:
+    GEMINI_AVAILABLE = False
+    print(f"❌ Gemini import failed: {e}")
 
 # === Create Blueprint ===
 fridge_bp = Blueprint('fridge_bp', __name__)

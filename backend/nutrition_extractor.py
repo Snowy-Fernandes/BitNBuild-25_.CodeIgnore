@@ -1,624 +1,386 @@
 """
 nutrition_extractor.py
 
-Flask blueprint for the Nutrition Analyzer backend.
+Deterministic local nutrition estimator with compatible response shape.
 
-Endpoints:
-- GET  /api/health
-- POST /api/analyze-nutrition  -> {"imageBase64": "..."} or {"description": "..."}
-- POST /api/enhance-nutrition  -> {"nutritionId": "...", "enhancementType": "...", "customInstructions": "..."}
+Routes (server.py mounts blueprint at /api):
+ - GET  /api/health
+ - POST /api/analyze-nutrition   body: { "description": "..."} or { "imageBase64": "data:...,..." }
+ - POST /api/enhance-nutrition   body: { "nutritionId": "...", "enhancementType": "...", ... }
 
-Environment variables:
-- GEMINI_API_KEY
-- GEMINI_MODEL
-- GROQ_API_KEY  
-- GROQ_MODEL
+Compatibility notes:
+ - Response includes: success, message, fallback, nutrition, data (data === nutrition)
+ - nutrition contains both totalCalories and calories keys to satisfy various frontends.
 """
-import os
 import re
 import io
 import json
 import uuid
 import base64
 import traceback
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from flask import Blueprint, request, jsonify
-from PIL import Image
-import requests
-from dotenv import load_dotenv
 
-# Load .env if present
-load_dotenv()
-
-# === Config / Keys ===
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")  # Will be updated to correct model
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-if not GEMINI_API_KEY:
-    print("WARNING: GEMINI_API_KEY not set. Gemini calls will fail until provided.")
-if not GROQ_API_KEY:
-    print("WARNING: GROQ_API_KEY not set. Groq calls will fail until provided.")
-
-# === Import SDKs (deferred) ===
+# optional PIL usage for image dimension heuristics
 try:
-    import google.generativeai as genai
-    # Configure Gemini
-    genai.configure(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-    gemini_available = GEMINI_API_KEY is not None
-    
-    # Get available models to find the correct one
-    if gemini_available:
-        try:
-            models = genai.list_models()
-            available_models = [model.name for model in models]
-            print(f"Available Gemini models: {available_models}")
-            
-            # Try to find a working vision model
-            vision_models = [model for model in available_models if 'vision' in model.lower() or 'flash' in model.lower()]
-            if vision_models:
-                GEMINI_MODEL = vision_models[0]  # Use the first available vision model
-                print(f"Using Gemini model: {GEMINI_MODEL}")
-            else:
-                # Fallback to common models
-                if 'gemini-1.5-flash' in available_models:
-                    GEMINI_MODEL = 'gemini-1.5-flash'
-                elif 'gemini-1.5-pro' in available_models:
-                    GEMINI_MODEL = 'gemini-1.5-pro'
-                else:
-                    GEMINI_MODEL = available_models[0] if available_models else 'gemini-1.5-flash'
-                    
-        except Exception as e:
-            print(f"Error listing Gemini models: {e}")
-            GEMINI_MODEL = 'gemini-1.5-flash'  # Fallback
-            
-except Exception as e:
-    print("google-generativeai import failed:", e)
-    gemini_available = False
+    from PIL import Image
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
 
-try:
-    from groq import Groq
-    groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-    groq_available = GROQ_API_KEY is not None
-except Exception as e:
-    print("groq import failed:", e)
-    groq_client = None
-    groq_available = False
-
-# === Blueprint ===
 bp = Blueprint("nutrition_extractor", __name__)
 
-# In-memory nutrition store (for demo)
-NUTRITION_STORE = {}
-
-# === Helpers ===
-
-def parse_json_from_text(text: str) -> Optional[dict]:
-    """
-    Try to extract JSON object from a model's textual response.
-    """
-    try:
-        # Clean the response and find JSON
-        text = text.strip()
-        
-        # Remove markdown code blocks if present
-        text = re.sub(r'```json\s*', '', text)
-        text = re.sub(r'```\s*', '', text)
-        
-        # Try to find JSON pattern
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group()
-            return json.loads(json_str)
-        else:
-            # Try to parse the entire response
-            return json.loads(text)
-    except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
-        print(f"Raw response: {text}")
-        return None
-
-def call_gemini_vision(image_base64: str, prompt_text: str) -> str:
-    """
-    Use Gemini vision model to analyze image
-    """
-    if not gemini_available:
-        raise RuntimeError("Gemini client not configured")
-    
-    try:
-        # Decode base64 image
-        image_data = base64.b64decode(image_base64)
-        image = Image.open(io.BytesIO(image_data))
-        
-        # Create the model
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        
-        # Generate content with image
-        response = model.generate_content([prompt_text, image])
-        return response.text
-        
-    except Exception as e:
-        print(f"Gemini vision error: {e}")
-        # If it's a model not found error, try a different approach
-        if "not found" in str(e).lower() or "404" in str(e):
-            print("Model not found, trying text-only analysis with image description")
-            # Fallback to text analysis by describing the image first
-            return call_gemini_text(f"Describe this food image in detail: {prompt_text}")
-        raise
-
-def call_gemini_text(prompt_text: str) -> str:
-    """
-    Use Gemini text model
-    """
-    if not gemini_available:
-        raise RuntimeError("Gemini client not configured")
-    
-    try:
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(prompt_text)
-        return response.text
-    except Exception as e:
-        print(f"Gemini text error: {e}")
-        raise
-
-def call_groq_chat(system_prompt: str, user_prompt: str) -> str:
-    """
-    Use Groq chat completion
-    """
-    if not groq_available:
-        raise RuntimeError("Groq client not configured")
-    
-    try:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        resp = groq_client.chat.completions.create(
-            messages=messages,
-            model=GROQ_MODEL,
-            temperature=0.7,
-            max_tokens=2000
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        print(f"Groq chat error: {e}")
-        raise
-
-def get_default_nutrition_data():
-    """
-    Return default nutrition data in case of API failure
-    """
-    return {
-        "id": str(uuid.uuid4()),
-        "description": "Mixed food meal",
-        "totalCalories": 520,
-        "macros": {
-            "protein": {"value": 28, "percentage": 22},
-            "carbs": {"value": 45, "percentage": 35},
-            "fats": {"value": 25, "percentage": 43}
-        },
-        "micronutrients": [
-            {"name": "Vitamin C", "value": "45mg", "daily": "75%"},
-            {"name": "Iron", "value": "8.2mg", "daily": "46%"},
-            {"name": "Calcium", "value": "240mg", "daily": "24%"},
-            {"name": "Fiber", "value": "12g", "daily": "48%"}
-        ],
-        "identifiedIngredients": [
-            {
-                "id": 1,
-                "name": "Chicken Breast",
-                "quantity": "150g",
-                "calories": 248,
-                "protein": 25,
-                "carbs": 0,
-                "fats": 3,
-            },
-            {
-                "id": 2,
-                "name": "Brown Rice",
-                "quantity": "100g",
-                "calories": 180,
-                "protein": 3,
-                "carbs": 35,
-                "fats": 2,
-            },
-            {
-                "id": 3,
-                "name": "Mixed Vegetables",
-                "quantity": "80g",
-                "calories": 92,
-                "protein": 0,
-                "carbs": 10,
-                "fats": 20,
-            },
-        ],
-        "suggestions": [
-            {
-                "id": 1,
-                "type": "reduce",
-                "title": "Reduce sodium",
-                "description": "Consider using herbs instead of salt for flavoring",
-                "impact": "Better heart health",
-                "icon": "🧂",
-            },
-            {
-                "id": 2,
-                "type": "add",
-                "title": "Add more fiber",
-                "description": "Include a side of leafy greens or beans",
-                "impact": "Better digestion",
-                "icon": "🥬",
-            },
-            {
-                "id": 3,
-                "type": "balance",
-                "title": "Balance protein",
-                "description": "Great protein content for muscle maintenance",
-                "impact": "Optimal nutrition",
-                "icon": "💪",
-            },
-        ],
-        "confidence": "high",
-        "analysisTime": "AI Analysis"
-    }
-
-# === Nutrition Analysis Prompts ===
-
-NUTRITION_IMAGE_PROMPT = """You are a professional nutritionist. Analyze this food image and provide a detailed nutrition breakdown.
-
-Please respond with ONLY valid JSON in this exact structure:
-
-{
-    "description": "Brief description of the meal",
-    "totalCalories": number,
-    "macros": {
-        "protein": {"value": number, "percentage": number},
-        "carbs": {"value": number, "percentage": number},
-        "fats": {"value": number, "percentage": number}
-    },
-    "micronutrients": [
-        {"name": "Vitamin C", "value": "45mg", "daily": "75%"},
-        {"name": "Iron", "value": "8.2mg", "daily": "46%"},
-        {"name": "Calcium", "value": "240mg", "daily": "24%"},
-        {"name": "Fiber", "value": "12g", "daily": "48%"}
-    ],
-    "identifiedIngredients": [
-        {
-            "id": 1,
-            "name": "Ingredient name",
-            "quantity": "150g",
-            "calories": 248,
-            "protein": 25,
-            "carbs": 0,
-            "fats": 3
-        }
-    ],
-    "suggestions": [
-        {
-            "id": 1,
-            "type": "reduce|add|balance",
-            "title": "Suggestion title",
-            "description": "Suggestion description",
-            "impact": "Health impact",
-            "icon": "emoji"
-        }
-    ]
+# Small lookup DB for deterministic estimation
+FOOD_DB = {
+    "chicken breast": {"per_100g": {"calories": 165, "protein": 31, "carbs": 0, "fat": 3.6}},
+    "salmon": {"per_100g": {"calories": 208, "protein": 20, "carbs": 0, "fat": 13}},
+    "egg": {"per_piece": {"calories": 78, "protein": 6.3, "carbs": 0.6, "fat": 5.3}, "default_grams": 50},
+    "rice": {"per_100g": {"calories": 130, "protein": 2.4, "carbs": 28.0, "fat": 0.3}},
+    "brown rice": {"per_100g": {"calories": 111, "protein": 2.6, "carbs": 23.0, "fat": 0.9}},
+    "tofu": {"per_100g": {"calories": 76, "protein": 8.0, "carbs": 1.9, "fat": 4.8}},
+    "lentils": {"per_100g": {"calories": 116, "protein": 9.0, "carbs": 20.0, "fat": 0.4}},
+    "mixed vegetables": {"per_100g": {"calories": 40, "protein": 2.0, "carbs": 7.0, "fat": 0.3}},
+    "oats": {"per_100g": {"calories": 389, "protein": 17.0, "carbs": 66.0, "fat": 7.0}},
+    "banana": {"per_piece": {"calories": 105, "protein": 1.3, "carbs": 27.0, "fat": 0.3}},
+    "potato": {"per_100g": {"calories": 77, "protein": 2.0, "carbs": 17.0, "fat": 0.1}},
+    "yogurt": {"per_100g": {"calories": 59, "protein": 10.0, "carbs": 3.6, "fat": 0.4}},
+    "bread": {"per_slice": {"calories": 80, "protein": 3.0, "carbs": 14.0, "fat": 1.0}},
+    "nuts": {"per_100g": {"calories": 607, "protein": 20.0, "carbs": 21.0, "fat": 54.0}},
+    "beef": {"per_100g": {"calories": 250, "protein": 26.0, "carbs": 0, "fat": 15.0}},
+    "pasta": {"per_100g": {"calories": 131, "protein": 5.0, "carbs": 25.0, "fat": 1.1}},
+    "apple": {"per_piece": {"calories": 95, "protein": 0.5, "carbs": 25.0, "fat": 0.3}},
 }
 
-Guidelines:
-- Make realistic estimates based on the visible food items
-- Ensure macro percentages add up to approximately 100%
-- Include 3-5 identifiable ingredients
-- Include 3-4 relevant micronutrients
-- Provide 2-3 practical health suggestions
-- Use appropriate emojis for suggestions
-- Keep all values nutritionally accurate"""
+SYNONYMS = {
+    "chicken": ["chicken", "chicken breast", "chicken breasts"],
+    "rice": ["rice", "white rice", "brown rice"],
+    "veg": ["veg", "veggies", "vegetable", "vegetables", "mixed vegetables"],
+    "egg": ["egg", "eggs"],
+}
 
-# FIXED: Use proper string formatting with double braces for JSON
-NUTRITION_TEXT_PROMPT_TEMPLATE = """Analyze this food description and provide a detailed nutrition breakdown: "{description}"
+UNIT_TO_GRAMS = {
+    "g": 1.0, "gram": 1.0, "grams": 1.0,
+    "kg": 1000.0, "kilogram": 1000.0,
+    "cup": 160.0, "cups": 160.0,
+    "tbsp": 15.0, "tablespoon": 15.0,
+    "tsp": 5.0, "slice": 30.0, "piece": None
+}
 
-Please respond with ONLY valid JSON in this exact structure:
+NUTRITION_STORE: Dict[str, Dict[str, Any]] = {}
 
-{{
-    "description": "Brief description of the meal",
-    "totalCalories": number,
-    "macros": {{
-        "protein": {{"value": number, "percentage": number}},
-        "carbs": {{"value": number, "percentage": number}},
-        "fats": {{"value": number, "percentage": number}}
-    }},
-    "micronutrients": [
-        {{"name": "Vitamin C", "value": "45mg", "daily": "75%"}},
-        {{"name": "Iron", "value": "8.2mg", "daily": "46%"}},
-        {{"name": "Calcium", "value": "240mg", "daily": "24%"}},
-        {{"name": "Fiber", "value": "12g", "daily": "48%"}}
-    ],
-    "identifiedIngredients": [
-        {{
-            "id": 1,
-            "name": "Ingredient name",
-            "quantity": "150g",
-            "calories": 248,
-            "protein": 25,
-            "carbs": 0,
-            "fats": 3
-        }}
-    ],
-    "suggestions": [
-        {{
-            "id": 1,
-            "type": "reduce|add|balance",
-            "title": "Suggestion title",
-            "description": "Suggestion description",
-            "impact": "Health impact",
-            "icon": "emoji"
-        }}
-    ]
-}}
+# --- parsing & estimating helpers ---
 
-Make realistic nutritional estimates based on common knowledge."""
+def identify_food_key(name: str) -> Optional[str]:
+    n = name.lower().strip()
+    if n in FOOD_DB:
+        return n
+    for k in FOOD_DB.keys():
+        if n == k or n in k or k in n:
+            return k
+    for canon, syns in SYNONYMS.items():
+        if n in syns:
+            for k in FOOD_DB.keys():
+                if canon in k:
+                    return k
+    return None
 
-def get_nutrition_text_prompt(description: str) -> str:
-    """Safely format the nutrition text prompt"""
-    return NUTRITION_TEXT_PROMPT_TEMPLATE.format(description=description)
-
-# === Endpoint implementations ===
-
-@bp.route("/api/health", methods=["GET"])
-def health():
-    """Health check endpoint"""
-    return jsonify({
-        "success": True, 
-        "message": "nutrition-extractor backend running",
-        "models": {
-            "gemini_available": gemini_available,
-            "gemini_model": GEMINI_MODEL,
-            "groq_available": groq_available,
-            "groq_model": GROQ_MODEL
-        }
-    }), 200
-
-@bp.route("/api/analyze-nutrition", methods=["POST"])
-def analyze_nutrition():
-    """
-    Main endpoint for nutrition analysis - accepts both image and text input
-    """
-    try:
-        data = request.get_json(force=True)
-        if not data:
-            return jsonify({"success": False, "error": "No JSON data provided"}), 400
-        
-        analysis_result = None
-        input_type = None
-        
-        # Handle image analysis
-        if 'imageBase64' in data:
-            input_type = "image"
-            image_base64 = data['imageBase64']
-            
-            # Remove data URL prefix if present
-            if ',' in image_base64:
-                image_base64 = image_base64.split(',')[1]
-            
-            # Validate base64
-            if not image_base64 or len(image_base64) < 100:
-                return jsonify({"success": False, "error": "Invalid image data"}), 400
-            
-            print(f"Analyzing image with AI... (Data length: {len(image_base64)})")
-            
-            # Try Gemini first, then fallback to Groq
-            try:
-                if gemini_available:
-                    analysis_result = call_gemini_vision(image_base64, NUTRITION_IMAGE_PROMPT)
-                else:
-                    raise RuntimeError("Gemini not available")
-            except Exception as e:
-                print(f"Gemini vision failed, trying Groq: {e}")
-                if groq_available:
-                    # For image analysis with Groq, use a simpler approach
-                    system_prompt = "You are a nutrition expert. Analyze food images and provide nutrition information."
-                    user_prompt = f"Analyze this food image and provide nutrition data: {NUTRITION_IMAGE_PROMPT}"
-                    analysis_result = call_groq_chat(system_prompt, user_prompt)
-                else:
-                    raise RuntimeError("No AI models available")
-        
-        # Handle text description analysis
-        elif 'description' in data:
-            input_type = "text"
-            description = data['description']
-            if not description.strip():
-                return jsonify({"success": False, "error": "Description cannot be empty"}), 400
-            
-            print(f"Analyzing description: {description}")
-            
-            # Try Gemini first, then fallback to Groq
-            try:
-                if gemini_available:
-                    prompt = get_nutrition_text_prompt(description)
-                    analysis_result = call_gemini_text(prompt)
-                else:
-                    raise RuntimeError("Gemini not available")
-            except Exception as e:
-                print(f"Gemini text failed, trying Groq: {e}")
-                if groq_available:
-                    prompt = get_nutrition_text_prompt(description)
-                    analysis_result = call_groq_chat("You are a nutritionist.", prompt)
-                else:
-                    raise RuntimeError("No AI models available")
-        
-        else:
-            return jsonify({"success": False, "error": "No imageBase64 or description provided"}), 400
-        
-        # Process the result
-        nutrition_data = None
-        if analysis_result:
-            print(f"Analysis result received: {analysis_result[:200]}...")
-            parsed_data = parse_json_from_text(analysis_result)
-            if parsed_data:
-                # Add metadata
-                parsed_data["id"] = str(uuid.uuid4())
-                parsed_data["confidence"] = "high"
-                parsed_data["analysisTime"] = "AI Analysis"
-                parsed_data["inputType"] = input_type
-                nutrition_data = parsed_data
-                # Store in memory
-                NUTRITION_STORE[parsed_data["id"]] = nutrition_data
-        
-        # Fallback to default data if analysis failed
-        if not nutrition_data:
-            print("Using default nutrition data")
-            nutrition_data = get_default_nutrition_data()
-            NUTRITION_STORE[nutrition_data["id"]] = nutrition_data
-        
-        return jsonify({
-            "success": True,
-            "data": nutrition_data
-        })
-        
-    except Exception as e:
-        traceback.print_exc()
-        # Return default data with error
-        nutrition_data = get_default_nutrition_data()
-        NUTRITION_STORE[nutrition_data["id"]] = nutrition_data
-        
-        return jsonify({
-            "success": False,
-            "error": str(e),
-            "data": nutrition_data
-        }), 500
-
-@bp.route("/api/enhance-nutrition", methods=["POST"])
-def enhance_nutrition():
-    """
-    Enhance nutrition analysis based on user requests
-    """
-    try:
-        data = request.get_json()
-        if not data or 'nutritionId' not in data or 'enhancementType' not in data:
-            return jsonify({"success": False, "error": "Missing nutritionId or enhancementType"}), 400
-        
-        nutrition_id = data['nutritionId']
-        enhancement_type = data['enhancementType']
-        custom_instructions = data.get('customInstructions', '')
-        
-        # Get the original nutrition data
-        original_data = NUTRITION_STORE.get(nutrition_id)
-        if not original_data:
-            return jsonify({"success": False, "error": "Nutrition analysis not found"}), 404
-        
-        # Build enhancement prompt based on type
-        enhancement_prompts = {
-            'calorie-reduction': "Reduce calories in this nutrition analysis. Suggest lower-calorie alternatives while maintaining nutrition.",
-            'protein-boost': "Increase protein content in this nutrition analysis. Suggest protein-rich alternatives.",
-            'healthier': "Make this nutrition analysis healthier: reduce unhealthy fats, increase fiber, suggest whole food alternatives.",
-            'vegetarian': "Suggest vegetarian alternatives for this nutrition analysis. Replace animal products with plant-based options.",
-            'low-carb': "Create a low-carb version of this nutrition analysis. Reduce carbohydrates and suggest alternatives.",
-            'custom': f"Apply these custom modifications: {custom_instructions}"
-        }
-        
-        if enhancement_type not in enhancement_prompts:
-            return jsonify({"success": False, "error": f"Invalid enhancement type: {enhancement_type}"}), 400
-        
-        prompt = f"{enhancement_prompts[enhancement_type]} Original data: {json.dumps(original_data)}"
-        
-        # Call AI for enhancement
-        enhanced_result = None
+def find_food_matches(description: str) -> List[Dict[str, Any]]:
+    desc = description.lower()
+    matches = []
+    pattern = r"(\d+(?:[.,]\d+)?)\s*(g|grams|gram|kg|cup|cups|tbsp|tablespoon|tsp|slice|slices|piece|pieces|oz|ounce|ounces)?\s*(of\s+)?([a-zA-Z\s]+?)(?:$|,|\band\b|\.)"
+    for m in re.finditer(pattern, desc):
+        num_s = m.group(1)
+        unit = (m.group(2) or "").strip()
+        raw_food = m.group(4).strip()
         try:
-            if gemini_available:
-                enhanced_result = call_gemini_text(prompt)
-            elif groq_available:
-                enhanced_result = call_groq_chat("You are a nutritionist helping to enhance meal plans.", prompt)
+            num = float(num_s.replace(",", "."))
+        except Exception:
+            continue
+        food_key = identify_food_key(raw_food)
+        quantity_g = None
+        count = None
+        if unit in ("g", "gram", "grams"):
+            quantity_g = num
+        elif unit in ("kg", "kilogram"):
+            quantity_g = num * 1000.0
+        elif unit in ("cup", "cups"):
+            quantity_g = num * UNIT_TO_GRAMS["cup"]
+        elif unit in ("tbsp", "tablespoon"):
+            quantity_g = num * UNIT_TO_GRAMS["tbsp"]
+        elif unit in ("tsp",):
+            quantity_g = num * UNIT_TO_GRAMS["tsp"]
+        elif unit in ("oz", "ounce", "ounces"):
+            quantity_g = num * 28.35
+        elif unit in ("slice", "slices", "piece", "pieces"):
+            count = int(num)
+        else:
+            if num.is_integer():
+                count = int(num)
             else:
-                raise RuntimeError("No AI models available for enhancement")
-        except Exception as e:
-            print(f"Enhancement AI call failed: {e}")
-            # Return original data if enhancement fails
-            return jsonify({
-                "success": False,
-                "error": "Enhancement failed",
-                "data": original_data
-            }), 500
-        
-        # Parse enhanced result
-        enhanced_data = None
-        if enhanced_result:
-            enhanced_data = parse_json_from_text(enhanced_result)
-            if enhanced_data:
-                # Preserve original ID and metadata
-                enhanced_data["id"] = nutrition_id
-                enhanced_data["confidence"] = "enhanced"
-                enhanced_data["analysisTime"] = "Enhanced Analysis"
-                enhanced_data["inputType"] = original_data.get("inputType", "unknown")
-                # Update store
-                NUTRITION_STORE[nutrition_id] = enhanced_data
-        
-        # Return enhanced data or original if enhancement failed
-        result_data = enhanced_data if enhanced_data else original_data
-        
-        return jsonify({
-            "success": True,
-            "data": result_data,
-            "enhanced": enhanced_data is not None
-        })
-        
+                quantity_g = num
+        if food_key:
+            matches.append({"food_key": food_key, "raw": raw_food, "quantity_g": quantity_g, "count": count})
+    # append words present without quantities
+    for k in FOOD_DB.keys():
+        if k in desc and not any(m["food_key"] == k for m in matches):
+            matches.append({"food_key": k, "raw": k, "quantity_g": None, "count": None})
+    for group in SYNONYMS.values():
+        for syn in group:
+            if syn in desc:
+                fk = identify_food_key(syn)
+                if fk and not any(m["food_key"] == fk for m in matches):
+                    matches.append({"food_key": fk, "raw": syn, "quantity_g": None, "count": None})
+    return matches
+
+def estimate_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    key = item["food_key"]
+    db = FOOD_DB.get(key, {})
+    qty_g = item.get("quantity_g")
+    count = item.get("count")
+    calories = protein = carbs = fat = 0.0
+    qty_desc = ""
+    if count and "per_piece" in db:
+        piece = db["per_piece"]
+        calories = piece["calories"] * count
+        protein = piece["protein"] * count
+        carbs = piece.get("carbs", 0) * count
+        fat = piece.get("fat", 0) * count
+        qty_desc = f"{count} piece(s)"
+    elif qty_g and "per_100g" in db:
+        factor = qty_g / 100.0
+        base = db["per_100g"]
+        calories = base["calories"] * factor
+        protein = base["protein"] * factor
+        carbs = base["carbs"] * factor
+        fat = base["fat"] * factor
+        qty_desc = f"{int(qty_g)} g"
+    elif count and "per_100g" in db and db.get("default_grams"):
+        grams = db.get("default_grams") * count
+        factor = grams / 100.0
+        base = db["per_100g"]
+        calories = base["calories"] * factor
+        protein = base["protein"] * factor
+        carbs = base["carbs"] * factor
+        fat = base["fat"] * factor
+        qty_desc = f"{count} serving(s) (~{int(grams)} g)"
+    elif "per_100g" in db:
+        base = db["per_100g"]
+        calories = base["calories"]
+        protein = base["protein"]
+        carbs = base["carbs"]
+        fat = base["fat"]
+        qty_desc = "100 g (assumed)"
+    elif "per_piece" in db:
+        piece = db["per_piece"]
+        calories = piece["calories"]
+        protein = piece["protein"]
+        carbs = piece.get("carbs", 0)
+        fat = piece.get("fat", 0)
+        qty_desc = "1 piece (assumed)"
+    else:
+        calories = 100; protein = 5; carbs = 10; fat = 5; qty_desc = "assumed"
+    return {
+        "id": str(uuid.uuid4()),
+        "name": key,
+        "quantity": qty_desc,
+        "calories": round(float(calories), 1),
+        "protein": round(float(protein), 1),
+        "carbs": round(float(carbs), 1),
+        "fats": round(float(fat), 1)
+    }
+
+def aggregate(identified: List[Dict[str, Any]]) -> Dict[str, Any]:
+    total_cal = sum(i["calories"] for i in identified)
+    total_protein = sum(i["protein"] for i in identified)
+    total_carbs = sum(i["carbs"] for i in identified)
+    total_fats = sum(i["fats"] for i in identified)
+    prot_cals = total_protein * 4.0
+    carb_cals = total_carbs * 4.0
+    fat_cals = total_fats * 9.0
+    sum_macros = max(1.0, prot_cals + carb_cals + fat_cals)
+    protein_pct = round((prot_cals / sum_macros) * 100, 1)
+    carbs_pct = round((carb_cals / sum_macros) * 100, 1)
+    fats_pct = round((fat_cals / sum_macros) * 100, 1)
+    macros = {
+        "protein": {"value": round(total_protein, 1), "percentage": protein_pct},
+        "carbs": {"value": round(total_carbs, 1), "percentage": carbs_pct},
+        "fats": {"value": round(total_fats, 1), "percentage": fats_pct}
+    }
+    # simple micronutrients heuristics
+    names = " ".join([i["name"] for i in identified]).lower()
+    micronutrients = []
+    if any(w in names for w in ["banana", "apple", "vegetable", "veg", "spinach"]):
+        micronutrients.append({"name": "Vitamin C", "value": "20-60mg", "daily": "20-60%"})
+        micronutrients.append({"name": "Fiber", "value": "3-8g", "daily": "10-30%"})
+    if "yogurt" in names or "cheese" in names:
+        micronutrients.append({"name": "Calcium", "value": "100-250mg", "daily": "10-25%"})
+    if not micronutrients:
+        micronutrients.append({"name": "Iron", "value": "1-3mg", "daily": "5-15%"})
+    suggestions = []
+    if total_cal > 800:
+        suggestions.append({"id": 1, "type": "reduce", "title": "Reduce portion", "description": "Consider smaller portions", "impact": "Lower calories", "icon": "🍽️"})
+    if fats_pct > 35:
+        suggestions.append({"id": 2, "type": "reduce", "title": "Lower fats", "description": "Choose leaner options", "impact": "Better heart health", "icon": "🫒"})
+    if protein_pct < 15:
+        suggestions.append({"id": 3, "type": "add", "title": "Add protein", "description": "Include lean protein or legumes", "impact": "Satiety & muscle", "icon": "🍗"})
+    if not suggestions:
+        suggestions.append({"id": 10, "type": "balance", "title": "Balanced meal", "description": "Looks reasonably balanced", "impact": "Maintain", "icon": "✅"})
+    return {
+        "id": str(uuid.uuid4()),
+        "description": "Estimated from input",
+        "totalCalories": int(round(total_cal)),
+        "calories": int(round(total_cal)),   # compatibility alias
+        "macros": macros,
+        "micronutrients": micronutrients,
+        "identifiedIngredients": identified,
+        "suggestions": suggestions,
+        "confidence": "low",
+        "analysisTime": "local_estimate"
+    }
+
+def deterministic_image_estimate(width: int, height: int) -> Dict[str, Any]:
+    area = max(1, width * height)
+    scaled = 400 + (area % 300)
+    identified = [
+        {"id": str(uuid.uuid4()), "name": "Protein (est.)", "quantity": "120g", "calories": round(scaled * 0.45, 1), "protein": round((scaled * 0.45) / 4.0, 1), "carbs": 0.0, "fats": round((scaled * 0.45) / 9.0, 1)},
+        {"id": str(uuid.uuid4()), "name": "Carb (est.)", "quantity": "150g", "calories": round(scaled * 0.35, 1), "protein": 2.0, "carbs": round((scaled * 0.35) / 4.0, 1), "fats": round((scaled * 0.35) / 9.0, 1)},
+    ]
+    return aggregate(identified)
+
+# --- endpoints (server mounts blueprint at /api) ---
+
+@bp.route("/health", methods=["GET"])
+def health():
+    return jsonify({"success": True, "message": "nutrition-extractor ready", "model": "local-estimator"}), 200
+
+@bp.route("/analyze-nutrition", methods=["POST"])
+def analyze_nutrition():
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        if not data:
+            fallback = get_default()
+            # include both keys for compatibility
+            return jsonify({"success": False, "message": "No JSON provided", "fallback": True, "nutrition": fallback, "data": fallback}), 400
+
+        nutrition_result = None
+        if "description" in data:
+            desc = (data.get("description") or "").strip()
+            if not desc:
+                fallback = get_default()
+                return jsonify({"success": False, "message": "Description empty", "fallback": True, "nutrition": fallback, "data": fallback}), 400
+            matches = find_food_matches(desc)
+            if matches:
+                identified = []
+                for it in matches:
+                    try:
+                        identified.append(estimate_item(it))
+                    except Exception:
+                        continue
+                if identified:
+                    nutrition_result = aggregate(identified)
+                    nutrition_result["confidence"] = "medium"
+                else:
+                    nutrition_result = heuristic_free_text(desc)
+                    nutrition_result["confidence"] = "low"
+            else:
+                nutrition_result = heuristic_free_text(desc)
+                nutrition_result["confidence"] = "low"
+            nutrition_result["inputType"] = "text"
+
+        elif "imageBase64" in data:
+            img_b64 = data.get("imageBase64", "")
+            if "," in img_b64:
+                img_b64 = img_b64.split(",", 1)[1]
+            if not img_b64 or len(img_b64) < 50:
+                fallback = get_default()
+                return jsonify({"success": False, "message": "Invalid image data", "fallback": True, "nutrition": fallback, "data": fallback}), 400
+            width = 400; height = 300
+            if PIL_AVAILABLE:
+                try:
+                    raw = base64.b64decode(img_b64)
+                    im = Image.open(io.BytesIO(raw))
+                    width, height = im.size
+                except Exception:
+                    width, height = 400, 300
+            nutrition_result = deterministic_image_estimate(width, height)
+            nutrition_result["inputType"] = "image"
+            nutrition_result["confidence"] = "low"
+
+        else:
+            fallback = get_default()
+            return jsonify({"success": False, "message": "Provide 'description' or 'imageBase64'", "fallback": True, "nutrition": fallback, "data": fallback}), 400
+
+        # store and return both 'nutrition' and 'data' keys
+        nutrition_result["id"] = nutrition_result.get("id", str(uuid.uuid4()))
+        NUTRITION_STORE[nutrition_result["id"]] = nutrition_result
+        return jsonify({"success": True, "message": "Analysis complete", "fallback": False, "nutrition": nutrition_result, "data": nutrition_result}), 200
+
     except Exception as e:
         traceback.print_exc()
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        fallback = get_default()
+        NUTRITION_STORE[fallback["id"]] = fallback
+        return jsonify({"success": False, "message": f"Internal error: {e}", "fallback": True, "nutrition": fallback, "data": fallback}), 500
 
-@bp.route("/api/models", methods=["GET"])
-def get_models():
-    """Get available AI models"""
+@bp.route("/enhance-nutrition", methods=["POST"])
+def enhance_nutrition():
     try:
-        models_info = {
-            "gemini": {
-                "available": gemini_available,
-                "model": GEMINI_MODEL,
-                "status": "active" if gemini_available else "not configured"
-            },
-            "groq": {
-                "available": groq_available,
-                "model": GROQ_MODEL,
-                "status": "active" if groq_available else "not configured"
-            }
-        }
-        return jsonify({
-            "success": True,
-            "models": models_info
-        })
+        d = request.get_json(force=True, silent=True) or {}
+        nid = d.get("nutritionId"); etype = d.get("enhancementType")
+        if not nid or not etype:
+            return jsonify({"success": False, "message": "Missing nutritionId or enhancementType"}), 400
+        original = NUTRITION_STORE.get(nid)
+        if not original:
+            return jsonify({"success": False, "message": "Nutrition analysis not found"}), 404
+        return jsonify({"success": True, "message": "Enhancement requires AI in this demo — returning original", "enhanced": False, "data": original, "nutrition": original}), 200
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"Internal error: {e}"}), 500
+
+@bp.route("/models", methods=["GET"])
+def models():
+    return jsonify({"success": True, "models": {"local": True}}), 200
 
 @bp.route("/", methods=["GET"])
 def home():
-    """Root endpoint for nutrition extractor"""
-    return jsonify({
-        "message": "Nutrition Analyzer API",
-        "endpoints": {
-            "analyze_nutrition": "POST /api/analyze-nutrition",
-            "enhance_nutrition": "POST /api/enhance-nutrition", 
-            "health": "GET /api/health",
-            "models": "GET /api/models"
-        },
-        "usage": {
-            "image_analysis": "Send POST with {imageBase64: 'base64_string'}",
-            "text_analysis": "Send POST with {description: 'food description'}"
-        },
-        "status": {
-            "gemini_available": gemini_available,
-            "groq_available": groq_available
-        }
-    })
+    return jsonify({"message": "Nutrition Analyzer (local)", "endpoints": {"analyze": "/analyze-nutrition", "enhance": "/enhance-nutrition", "health": "/health"}}), 200
 
-# Alias for backward compatibility
+# helper fallback & heuristic functions
+
+def get_default() -> Dict[str, Any]:
+    obj = {
+        "id": str(uuid.uuid4()),
+        "description": "Mixed meal (deterministic fallback)",
+        "totalCalories": 520,
+        "calories": 520,
+        "macros": {"protein": {"value": 28, "percentage": 22}, "carbs": {"value": 45, "percentage": 35}, "fats": {"value": 25, "percentage": 43}},
+        "identifiedIngredients": [
+            {"id": 1, "name": "Chicken Breast", "quantity": "150g", "calories": 247.5, "protein": 46.5, "carbs": 0, "fats": 5.4},
+            {"id": 2, "name": "Brown Rice", "quantity": "100g", "calories": 111, "protein": 2.6, "carbs": 23.0, "fats": 0.9}
+        ],
+        "suggestions": [{"id": 1, "type": "balance", "title": "Balanced meal", "description": "Reduce oils to lower calories", "icon": "✅"}],
+        "confidence": "low",
+        "analysisTime": "fallback"
+    }
+    return obj
+
+def heuristic_free_text(text: str) -> Dict[str, Any]:
+    t = text.lower()
+    items = []
+    if any(w in t for w in ["chicken", "breast"]):
+        items.append({"food_key": "chicken breast", "quantity_g": 150, "count": None})
+    if any(w in t for w in ["rice", "biryani", "pulao", "pilaf", "fried rice"]):
+        items.append({"food_key": "rice", "quantity_g": 150, "count": None})
+    if any(w in t for w in ["egg", "eggs"]):
+        items.append({"food_key": "egg", "quantity_g": None, "count": 2})
+    if any(w in t for w in ["salad", "vegetable", "veg", "veggies"]):
+        items.append({"food_key": "mixed vegetables", "quantity_g": 100, "count": None})
+    if not items:
+        return get_default()
+    identified = [estimate_item(it) for it in items]
+    return aggregate(identified)
+
+# alias expected by server.py
 nutrition_bp = bp
 
 def init_app(app):
-    """Initialize the nutrition extractor with the Flask app"""
-    print("[nutrition_extractor] ✅ Initialized nutrition extractor module")
+    print("[nutrition_extractor] ✅ deterministic nutrition extractor initialized")

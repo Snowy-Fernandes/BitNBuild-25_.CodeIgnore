@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import { 
@@ -16,6 +17,12 @@ import {
   Users,
   Heart,
   BookOpen,
+  Play,
+  Pause,
+  SkipForward,
+  ChefHat,
+  Volume2,
+  VolumeX,
 } from 'lucide-react-native';
 import Svg, { Path, Circle, Rect, G, Polygon } from 'react-native-svg';
 
@@ -77,16 +84,41 @@ const SaladIcon = ({ size = 32, color = "#22C55E" }) => (
 
 const filterOptions = ['All', 'Veg', 'Non-Veg', 'Others'];
 
+// Enhanced recipes with detailed cooking instructions
 const savedRecipes = [
   {
     id: 1,
-    title: 'Mediterranean Pasta',
-    iconType: 'pasta',
+    title: 'Classic Vegan Mushroom Pasta',
+    iconType: 'mushroom',
     time: '25 min',
     servings: '4',
-    tags: ['Veg', 'Quick'],
+    tags: ['Veg', 'Quick', 'Comfort'],
     dateAdded: '2 days ago',
     isFavorite: true,
+    cookingSteps: [
+      'Gather your ingredients: 200g pasta, 300g fresh mushrooms, 2 cloves garlic, 1 medium onion, 2 tablespoons olive oil, salt, black pepper, and fresh parsley for garnish.',
+      'Bring a large pot of salted water to a rolling boil. Add a tablespoon of salt to the water for flavor.',
+      'While the water is heating, clean and slice the mushrooms. Finely chop the onion and mince the garlic cloves.',
+      'Heat olive oil in a large pan over medium heat. Make sure the pan is large enough to hold the pasta later.',
+      'Add the chopped onions to the pan and sauté for 3-4 minutes until they become translucent and soft.',
+      'Add the minced garlic and cook for another minute until fragrant. Be careful not to burn the garlic.',
+      'Add the sliced mushrooms to the pan. Cook for 8-10 minutes, stirring occasionally, until they release their moisture and turn golden brown.',
+      'Meanwhile, add the pasta to the boiling water and cook according to package instructions until al dente.',
+      'Season the mushroom mixture with salt and freshly ground black pepper to taste.',
+      'Drain the pasta, but reserve about half a cup of the starchy pasta water. This will help create the sauce.',
+      'Add the drained pasta directly to the mushroom mixture in the pan.',
+      'Toss everything together, adding a splash of the reserved pasta water to create a light, creamy sauce that coats the pasta.',
+      'Garnish with freshly chopped parsley and serve immediately while hot. Enjoy your delicious vegan mushroom pasta!'
+    ],
+    ingredients: [
+      '200g pasta',
+      '300g mushrooms',
+      '2 cloves garlic',
+      '1 onion',
+      '2 tbsp olive oil',
+      'Salt and pepper',
+      'Fresh parsley'
+    ]
   },
   {
     id: 2,
@@ -94,19 +126,63 @@ const savedRecipes = [
     iconType: 'chicken',
     time: '30 min',
     servings: '3',
-    tags: ['Non-Veg', 'Spicy'],
+    tags: ['Non-Veg', 'Spicy', 'Asian'],
     dateAdded: '5 days ago',
     isFavorite: false,
+    cookingSteps: [
+      'Prepare the ingredients: 500g chicken breast, 2 tbsp vegetable oil, 3 cloves garlic, 1 tbsp ginger, 2 red chilies, 1 bell pepper, 1 onion, 3 tbsp soy sauce, 1 tbsp fish sauce, 1 tsp sugar, and fresh basil leaves.',
+      'Cut the chicken breast into bite-sized pieces and season with a pinch of salt.',
+      'Heat vegetable oil in a wok or large frying pan over high heat.',
+      'Add minced garlic and grated ginger, stir-fry for 30 seconds until fragrant.',
+      'Add the chicken pieces and cook for 5-6 minutes until golden brown and cooked through.',
+      'Slice the bell pepper and onion into thin strips. Chop the red chilies.',
+      'Add the vegetables to the wok and stir-fry for 3-4 minutes until they start to soften but remain crisp.',
+      'In a small bowl, mix together soy sauce, fish sauce, and sugar.',
+      'Pour the sauce mixture over the chicken and vegetables. Stir well to combine.',
+      'Add the chopped chilies and fresh basil leaves. Cook for another minute.',
+      'Taste and adjust seasoning if needed. Serve hot with steamed jasmine rice.'
+    ],
+    ingredients: [
+      '500g chicken breast',
+      '3 cloves garlic',
+      '1 tbsp ginger',
+      '2 red chilies',
+      '1 bell pepper',
+      '3 tbsp soy sauce',
+      '1 tbsp fish sauce',
+      'Fresh basil'
+    ]
   },
   {
     id: 3,
-    title: 'Mushroom Risotto',
-    iconType: 'mushroom',
-    time: '35 min',
+    title: 'Mediterranean Pasta',
+    iconType: 'pasta',
+    time: '20 min',
     servings: '4',
-    tags: ['Veg', 'Comfort'],
+    tags: ['Veg', 'Quick', 'Mediterranean'],
     dateAdded: '1 week ago',
     isFavorite: true,
+    cookingSteps: [
+      'Gather: 250g pasta, 2 tbsp olive oil, 3 cloves garlic, 1 cup cherry tomatoes, 1/2 cup black olives, 2 tbsp capers, fresh basil, and parmesan cheese.',
+      'Cook pasta in salted boiling water according to package directions.',
+      'Meanwhile, heat olive oil in a large pan over medium heat.',
+      'Add sliced garlic and cook until fragrant, about 1 minute.',
+      'Add halved cherry tomatoes and cook until they start to burst, about 5 minutes.',
+      'Stir in olives and capers, cook for 2 more minutes.',
+      'Drain pasta, reserving 1/4 cup pasta water.',
+      'Add pasta to the sauce with pasta water and toss to combine.',
+      'Garnish with fresh basil and grated parmesan before serving.'
+    ],
+    ingredients: [
+      '250g pasta',
+      '2 tbsp olive oil',
+      '3 cloves garlic',
+      '1 cup cherry tomatoes',
+      '1/2 cup black olives',
+      '2 tbsp capers',
+      'Fresh basil',
+      'Parmesan cheese'
+    ]
   },
   {
     id: 4,
@@ -114,9 +190,26 @@ const savedRecipes = [
     iconType: 'salad',
     time: '20 min',
     servings: '2',
-    tags: ['Veg', 'Healthy'],
+    tags: ['Veg', 'Healthy', 'Bowl'],
     dateAdded: '1 week ago',
     isFavorite: false,
+    cookingSteps: [
+      'Cook 1 cup quinoa according to package instructions.',
+      'Prepare vegetables: chop avocado, cucumber, cherry tomatoes, and red cabbage.',
+      'Make dressing: mix 3 tbsp olive oil, 1 tbsp lemon juice, 1 tsp honey, salt and pepper.',
+      'Assemble bowls with quinoa base and arranged vegetables.',
+      'Drizzle with dressing and add toppings like sesame seeds or chickpeas.',
+      'Serve immediately for fresh, crisp vegetables.'
+    ],
+    ingredients: [
+      '1 cup quinoa',
+      '1 avocado',
+      '1 cucumber',
+      '1 cup cherry tomatoes',
+      '1/2 red cabbage',
+      '3 tbsp olive oil',
+      '1 tbsp lemon juice'
+    ]
   },
 ];
 
@@ -133,6 +226,209 @@ const RecipeIcon = ({ iconType, size = 32 }) => {
     default:
       return <PastaIcon size={size} />;
   }
+};
+
+// Cooking Screen Component
+const CookingScreen = ({ recipe, onClose }) => {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [ttsAvailable, setTtsAvailable] = useState(true);
+
+  // Simulated TTS function - Replace with actual TTS library
+  const speak = async (text: string) => {
+    try {
+      // Check if we're in a browser environment (for web TTS)
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        // Web TTS API
+        window.speechSynthesis.cancel(); // Stop any ongoing speech
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.8;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        
+        utterance.onstart = () => setIsPlaying(true);
+        utterance.onend = () => setIsPlaying(false);
+        utterance.onerror = () => {
+          setIsPlaying(false);
+          setTtsAvailable(false);
+        };
+        
+        window.speechSynthesis.speak(utterance);
+      } else {
+        // React Native TTS simulation
+        setTtsAvailable(false);
+        Alert.alert('Cooking Instruction', text, [
+          { text: 'OK', onPress: () => setIsPlaying(false) }
+        ]);
+        setIsPlaying(true);
+        // Simulate speech duration
+        setTimeout(() => setIsPlaying(false), 3000);
+      }
+    } catch (error) {
+      console.error('TTS Error:', error);
+      setTtsAvailable(false);
+      Alert.alert('Cooking Instruction', text);
+    }
+  };
+
+  const stopSpeech = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsPlaying(false);
+  };
+
+  const playStep = async () => {
+    if (!recipe?.cookingSteps?.[currentStep]) return;
+    
+    const stepText = `Step ${currentStep + 1}: ${recipe.cookingSteps[currentStep]}`;
+    await speak(stepText);
+  };
+
+  const nextStep = async () => {
+    stopSpeech(); // Stop current speech
+    
+    if (currentStep < recipe.cookingSteps.length - 1) {
+      const newStep = currentStep + 1;
+      setCurrentStep(newStep);
+      
+      // Auto-play next step after a short delay
+      setTimeout(async () => {
+        const stepText = `Step ${newStep + 1}: ${recipe.cookingSteps[newStep]}`;
+        await speak(stepText);
+      }, 500);
+    } else {
+      const completionText = 'Congratulations! You have completed the recipe. Enjoy your meal!';
+      await speak(completionText);
+      setTimeout(() => {
+        Alert.alert('🎉 Recipe Completed!', 'Great job! Your dish is ready to serve.');
+        onClose();
+      }, 2000);
+    }
+  };
+
+  const previousStep = async () => {
+    stopSpeech(); // Stop current speech
+    
+    if (currentStep > 0) {
+      const newStep = currentStep - 1;
+      setCurrentStep(newStep);
+      
+      // Auto-play previous step after a short delay
+      setTimeout(async () => {
+        const stepText = `Step ${newStep + 1}: ${recipe.cookingSteps[newStep]}`;
+        await speak(stepText);
+      }, 500);
+    }
+  };
+
+  const togglePlayPause = async () => {
+    if (isPlaying) {
+      stopSpeech();
+    } else {
+      await playStep();
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.cookingContainer}>
+      <View style={styles.cookingHeader}>
+        <TouchableOpacity onPress={onClose} style={styles.backButton}>
+          <ChevronLeft size={24} color="#6B7280" />
+        </TouchableOpacity>
+        <Text style={styles.cookingTitle}>Cooking: {recipe.title}</Text>
+        <View style={styles.stepIndicator}>
+          <Text style={styles.stepText}>
+            Step {currentStep + 1} of {recipe.cookingSteps.length}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.progressContainer}>
+        <View style={styles.progressBar}>
+          <View 
+            style={[
+              styles.progressFill,
+              { width: `${((currentStep + 1) / recipe.cookingSteps.length) * 100}%` }
+            ]} 
+          />
+        </View>
+      </View>
+
+      <ScrollView style={styles.instructionsContainer} showsVerticalScrollIndicator={false}>
+        <View style={styles.currentStepCard}>
+          <View style={styles.stepHeader}>
+            <Text style={styles.stepNumber}>Step {currentStep + 1}</Text>
+            {isPlaying ? (
+              <Volume2 size={20} color="#6C8BE6" />
+            ) : (
+              <VolumeX size={20} color="#9CA3AF" />
+            )}
+          </View>
+          <Text style={styles.instructionText}>
+            {recipe.cookingSteps[currentStep]}
+          </Text>
+        </View>
+
+        <View style={styles.ingredientsCard}>
+          <Text style={styles.sectionTitle}>📋 Ingredients Needed</Text>
+          {recipe.ingredients.map((ingredient, index) => (
+            <Text key={index} style={styles.ingredientText}>• {ingredient}</Text>
+          ))}
+        </View>
+      </ScrollView>
+
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity 
+          style={[styles.controlButton, currentStep === 0 && styles.disabledButton]}
+          onPress={previousStep}
+          disabled={currentStep === 0}
+        >
+          <SkipForward size={20} color={currentStep === 0 ? "#9CA3AF" : "#6C8BE6"} style={{ transform: [{ rotate: '180deg' }] }} />
+          <Text style={[styles.controlText, currentStep === 0 && styles.disabledText]}>
+            Previous
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.controlButton, styles.playButton]}
+          onPress={togglePlayPause}
+        >
+          {isPlaying ? <Pause size={20} color="#FFFFFF" /> : <Play size={20} color="#FFFFFF" />}
+          <Text style={[styles.controlText, styles.playText]}>
+            {isPlaying ? 'Pause' : 'Play Step'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.controlButton, currentStep === recipe.cookingSteps.length - 1 && styles.finishButton]}
+          onPress={nextStep}
+        >
+          <SkipForward size={20} color={currentStep === recipe.cookingSteps.length - 1 ? "#FFFFFF" : "#6C8BE6"} />
+          <Text style={[styles.controlText, currentStep === recipe.cookingSteps.length - 1 && styles.finishText]}>
+            {currentStep === recipe.cookingSteps.length - 1 ? 'Finish' : 'Next'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* TTS Status Indicator */}
+      {!ttsAvailable && (
+        <View style={styles.ttsWarning}>
+          <Text style={styles.ttsWarningText}>
+            🔈 TTS not available. Using text display. Install react-native-tts for audio.
+          </Text>
+        </View>
+      )}
+    </SafeAreaView>
+  );
 };
 
 const EmptyState = () => (
@@ -157,6 +453,8 @@ const EmptyState = () => (
 export default function MyRecipesScreen() {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [recipes, setRecipes] = useState(savedRecipes);
+  const [cookingRecipe, setCookingRecipe] = useState(null);
+  const [showCookingScreen, setShowCookingScreen] = useState(false);
 
   const filteredRecipes = recipes.filter(recipe => {
     if (selectedFilter === 'All') return true;
@@ -166,7 +464,7 @@ export default function MyRecipesScreen() {
     return recipe.tags.includes(selectedFilter);
   });
 
-  const toggleFavorite = (recipeId) => {
+  const toggleFavorite = (recipeId: number) => {
     setRecipes(prev =>
       prev.map(recipe =>
         recipe.id === recipeId
@@ -176,18 +474,19 @@ export default function MyRecipesScreen() {
     );
   };
 
-  const openRecipeDetail = (recipe) => {
-    router.push({
-      pathname: '/recipe-detail',
-      params: {
-        recipeId: recipe.id,
-        from: 'my-recipes',
-        title: recipe.title,
-        time: recipe.time,
-        servings: recipe.servings,
-      }
-    });
+  const startCooking = (recipe: any) => {
+    setCookingRecipe(recipe);
+    setShowCookingScreen(true);
   };
+
+  if (showCookingScreen && cookingRecipe) {
+    return (
+      <CookingScreen 
+        recipe={cookingRecipe} 
+        onClose={() => setShowCookingScreen(false)} 
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -247,12 +546,7 @@ export default function MyRecipesScreen() {
             </Text>
             
             {filteredRecipes.map((recipe) => (
-              <TouchableOpacity
-                key={recipe.id}
-                style={styles.recipeCard}
-                onPress={() => openRecipeDetail(recipe)}
-                accessibilityLabel={`Recipe: ${recipe.title}`}
-                accessibilityRole="button">
+              <View key={recipe.id} style={styles.recipeCard}>
                 <View style={styles.recipeImage}>
                   <RecipeIcon iconType={recipe.iconType} size={32} />
                   <TouchableOpacity
@@ -284,6 +578,10 @@ export default function MyRecipesScreen() {
                       <Users size={12} color="#6B7280" strokeWidth={2} />
                       <Text style={styles.metaText}>{recipe.servings}</Text>
                     </View>
+                    <View style={styles.metaItem}>
+                      <ChefHat size={12} color="#6B7280" strokeWidth={2} />
+                      <Text style={styles.metaText}>{recipe.cookingSteps.length} steps</Text>
+                    </View>
                   </View>
                   
                   <View style={styles.recipeTags}>
@@ -293,14 +591,21 @@ export default function MyRecipesScreen() {
                       </View>
                     ))}
                   </View>
+                  
+                  <TouchableOpacity
+                    style={styles.cookButton}
+                    onPress={() => startCooking(recipe)}
+                    accessibilityLabel={`Start cooking ${recipe.title}`}
+                    accessibilityRole="button">
+                    <Play size={16} color="#FFFFFF" fill="#FFFFFF" />
+                    <Text style={styles.cookButtonText}>Start Cooking</Text>
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
+              </View>
             ))}
           </ScrollView>
         )}
       </View>
-
-      
     </SafeAreaView>
   );
 }
@@ -386,6 +691,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#EFF3FF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   recipeImage: {
     width: 80,
@@ -408,10 +718,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
@@ -432,7 +739,7 @@ const styles = StyleSheet.create({
   },
   recipeMeta: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 12,
     marginBottom: 8,
   },
   metaItem: {
@@ -448,6 +755,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
     flexWrap: 'wrap',
+    marginBottom: 12,
   },
   tag: {
     backgroundColor: '#EFF3FF',
@@ -459,6 +767,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '500',
     color: '#6C8BE6',
+  },
+  cookButton: {
+    backgroundColor: '#6C8BE6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  cookButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,
@@ -500,23 +823,171 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  chatbotFloat: {
-    position: 'absolute',
-    bottom: 80,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  // Cooking Screen Styles
+  cookingContainer: {
+    flex: 1,
+    backgroundColor: '#F6F8FB',
+  },
+  cookingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFF3FF',
+  },
+  cookingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1F2937',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 10,
+  },
+  stepIndicator: {
+    backgroundColor: '#EFF3FF',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  stepText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6C8BE6',
+  },
+  progressContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: '#EFF3FF',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
     backgroundColor: '#6C8BE6',
+    borderRadius: 3,
+  },
+  instructionsContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  currentStepCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#EFF3FF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  stepNumber: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C8BE6',
+  },
+  instructionText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#1F2937',
+  },
+  ingredientsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#EFF3FF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  ingredientText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#EFF3FF',
+    gap: 12,
+  },
+  controlButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#EFF3FF',
+    flex: 1,
+    minHeight: 50,
+  },
+  playButton: {
+    backgroundColor: '#6C8BE6',
+  },
+  finishButton: {
+    backgroundColor: '#10B981',
+  },
+  disabledButton: {
+    opacity: 0.5,
+  },
+  controlText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C8BE6',
+  },
+  playText: {
+    color: '#FFFFFF',
+  },
+  finishText: {
+    color: '#FFFFFF',
+  },
+  disabledText: {
+    color: '#9CA3AF',
+  },
+  ttsWarning: {
+    backgroundColor: '#FFF3CD',
+    padding: 12,
+    margin: 16,
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFC107',
+  },
+  ttsWarningText: {
+    color: '#856404',
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
+
+

@@ -5,18 +5,14 @@ Flask blueprint for the Recipe Extractor backend.
 
 Endpoints:
 - GET  /health
-- POST /extractor/photo      -> {"image": "data:image/jpeg;base64,...."}
-- POST /extractor/dish-name  -> {"dishName": "Paneer Butter Masala"}
-- POST /extractor/url        -> {"url": "https://..."}
-- POST /extractor/enhance    -> {"recipeId": "...", "enhancementType": "vegetarian" | "spicier" | "double-portions" | "custom",
-                                  "customInstructions": "..."}
-
-Environment variables:
-- GEMINI_API_KEY  (or GOOGLE_API_KEY)
-- GEMINI_MODEL
-- GROQ_API_KEY
-- GROQ_MODEL
+- POST /photo      -> {"image": "data:image/jpeg;base64,...."}
+- POST /dish-name  -> {"dishName": "Paneer Butter Masala"}
+- POST /url        -> {"url": "https://..."}
+- POST /enhance    -> {"recipeId": "...", "enhancementType": "vegetarian" | "spicier" | "double-portions" | "custom",
+                       "customInstructions": "..."}
+- POST /save       -> Save recipe to database
 """
+
 import os
 import re
 import io
@@ -25,6 +21,7 @@ import uuid
 import base64
 import traceback
 from typing import Optional
+from database import save_recipe_to_db, get_user_saved_recipes
 from flask import Blueprint, request, jsonify
 from PIL import Image
 import requests
@@ -162,7 +159,7 @@ def fetch_url_text(url: str) -> str:
 def health():
     return jsonify({"success": True, "message": "recipe-extractor backend running"}), 200
 
-@extractor_bp.route("/extractor/photo", methods=["POST"])
+@extractor_bp.route("/photo", methods=["POST"])
 def extractor_photo():
     try:
         data = request.get_json(force=True)
@@ -189,7 +186,8 @@ def extractor_photo():
             "5) Suggest likely cooking method(s) and an estimated total time (in minutes), servings, and calorie estimate.\n"
             "6) Finally, produce a structured recipe in JSON EXACTLY with the following keys:\n"
             "   title, source, confidence, time, servings, calories, cuisine, difficulty, tags (array),\n"
-            "   ingredients (array of objects {name, quantity, unit}), instructions (array of step strings),\n            nutritional_info (object: protein, carbs, fat, fiber)\n"
+            "   ingredients (array of objects {name, quantity, unit}), instructions (array of step strings),\n"
+            "   nutritional_info (object: protein, carbs, fat, fiber)\n"
             "Output only valid JSON (no additional explanatory text). If you are not confident it is food, set confidence to 'low' and return {\"title\":null, \"reason\":\"not food\"}.\n"
             "Be conservative on quantities if uncertain; use approximate quantities like \"1-2\" or \"to taste\".\n"
         )
@@ -250,7 +248,7 @@ def extractor_photo():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@extractor_bp.route("/extractor/dish-name", methods=["POST"])
+@extractor_bp.route("/dish-name", methods=["POST"])
 def extractor_dish_name():
     """
     Generate a recipe from a dish name (text) using Groq (Llama) model -> structured JSON.
@@ -307,7 +305,7 @@ def extractor_dish_name():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@extractor_bp.route("/extractor/url", methods=["POST"])
+@extractor_bp.route("/url", methods=["POST"])
 def extractor_url():
     """
     Extract information from a restaurant/dish URL and generate a recipe using Groq.
@@ -364,7 +362,7 @@ def extractor_url():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-@extractor_bp.route("/extractor/enhance", methods=["POST"])
+@extractor_bp.route("/enhance", methods=["POST"])
 def extractor_enhance():
     """
     Enhance an existing recipe stored in RECIPE_STORE according to enhancementType.
@@ -440,6 +438,68 @@ def extractor_enhance():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
-# The module exposes:
-# - extractor_bp (blueprint)
-# - RECIPE_STORE (in-memory store)
+@extractor_bp.route("/save", methods=["POST"])
+def save_recipe():
+    """
+    Save a recipe to the database.
+    Expects: {"recipe": recipe_data, "user_id": "user-uuid"}
+    """
+    try:
+        data = request.get_json(force=True)
+        if not data or "recipe" not in data or "user_id" not in data:
+            return jsonify({"success": False, "error": "Missing 'recipe' or 'user_id' in body"}), 400
+        
+        recipe_data = data["recipe"]
+        user_id = data["user_id"]
+        
+        # Save to database
+        result = save_recipe_to_db(recipe_data, user_id)
+        
+        if result['success']:
+            return jsonify({
+                "success": True,
+                "message": "Recipe saved successfully",
+                "recipe_id": result['recipe_id'],
+                "title": result['title']
+            }), 200
+        else:
+            return jsonify({"success": False, "error": result.get('error', 'Database error')}), 500
+            
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@extractor_bp.route("/saved-recipes/<user_id>", methods=["GET"])
+def get_saved_recipes(user_id):
+    """
+    Get all saved recipes for a user.
+    """
+    try:
+        recipes = get_user_saved_recipes(user_id)
+        return jsonify({"success": True, "recipes": recipes}), 200
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@extractor_bp.route("/test-db", methods=["GET"])
+def test_db_connection():
+    """Test database connection"""
+    try:
+        from database import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT version();")
+        db_version = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify({
+            "success": True, 
+            "message": "Database connection successful",
+            "version": db_version[0]
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False, 
+            "error": f"Database connection failed: {str(e)}"
+        }), 500

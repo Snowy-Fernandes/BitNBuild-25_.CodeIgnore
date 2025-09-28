@@ -69,24 +69,13 @@ const SunIcon = ({ size = 20, color = "#F59E0B" }) => (
   </Svg>
 );
 
-const DeliveryIcon = ({ size = 24, color = "#6B7280" }) => (
+const DietitianIcon = ({ size = 24, color = "#06B6D4" }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M14 18C14 19.1046 13.1046 20 12 20C10.8954 20 10 19.1046 10 18C10 16.8954 10.8954 16 12 16C13.1046 16 14 16.8954 14 18Z"
-      fill={color}
-    />
-    <Path
-      d="M22 18C22 19.1046 21.1046 20 20 20C18.8954 20 18 19.1046 18 18C18 16.8954 18.8954 16 20 16C21.1046 16 22 16.8954 22 18Z"
-      fill={color}
-    />
-    <Path
-      d="M1 1H3L3.4 3M7 13H17L21 5H5.4M7 13L5.4 5M7 13L4.7 15.3C4.3 15.7 4.6 16 5.1 16H17M17 13V16"
-      stroke={color}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-    />
+    <Circle cx="12" cy="7" r="4" stroke={color} strokeWidth="2" fill={color} fillOpacity="0.1" />
+    <Path d="M6 21V19C6 16.7909 7.79086 15 10 15H14C16.2091 15 18 16.7909 18 19V21" stroke={color} strokeWidth="2" />
+    <Path d="M16 3.13A4 4 0 0 1 16 11.87" stroke={color} strokeWidth="2" />
+    <Path d="M8 3.13A4 4 0 0 0 8 11.87" stroke={color} strokeWidth="2" />
+    <Circle cx="12" cy="12" r="1" fill={color} />
   </Svg>
 );
 
@@ -147,8 +136,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        
-
         {/* Weekly Diet Plan Button */}
         <TouchableOpacity
           style={styles.weeklyPlanButton}
@@ -167,29 +154,28 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
 
-        <View style={styles.deliveryBanner}>
-          <View style={styles.deliveryIcon}>
-            <DeliveryIcon size={28} color="#6B7280" />
+        {/* Dietitians Banner */}
+        <TouchableOpacity
+          style={styles.dietitiansBanner}
+          onPress={() => router.push('/dietitian')}
+          accessibilityLabel="Visit our dietitians"
+          accessibilityRole="button">
+          <View style={styles.dietitiansContent}>
+            <View style={styles.dietitiansIcon}>
+              <DietitianIcon size={28} color="#06B6D4" />
+            </View>
+            <View style={styles.dietitiansInfo}>
+              <Text style={styles.dietitiansTitle}>Need guidance</Text>
+              <Text style={styles.dietitiansSubtitle}>Consult with dietitians near you</Text>
+            </View>
+            <View style={styles.dietitiansAction}>
+              <View style={styles.visitButton}>
+                <Text style={styles.visitButtonText}>Visit</Text>
+                <ChevronRight size={16} color="#06B6D4" strokeWidth={2} />
+              </View>
+            </View>
           </View>
-          <View style={styles.deliveryContent}>
-            <Text style={styles.deliveryTitle}>Missing ingredients?</Text>
-            <Text style={styles.deliverySubtitle}>Order fresh groceries delivered in minutes</Text>
-          </View>
-          <View style={styles.deliveryLogos}>
-            <TouchableOpacity
-              style={styles.logoButton}
-              accessibilityLabel="Order from Zepto"
-              accessibilityRole="button">
-              <Text style={styles.logoText}>Zepto</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.logoButton}
-              accessibilityLabel="Order from Blinkit"
-              accessibilityRole="button">
-              <Text style={styles.logoText}>Blinkit</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        </TouchableOpacity>
       </ScrollView>
 
       <ChatbotFloat />
@@ -346,15 +332,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
   },
-  deliveryBanner: {
+  
+  // Dietitians Banner Styles
+  dietitiansBanner: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 40,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderLeftWidth: 4,
+    borderLeftColor: '#06B6D4',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -364,47 +350,53 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
   },
-  deliveryIcon: {
+  dietitiansContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dietitiansIcon: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#ECFEFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
   },
-  deliveryContent: {
+  dietitiansInfo: {
     flex: 1,
   },
-  deliveryTitle: {
+  dietitiansTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1F2937',
     marginBottom: 4,
   },
-  deliverySubtitle: {
+  dietitiansSubtitle: {
     fontSize: 13,
     color: '#6B7280',
+    lineHeight: 18,
   },
-  deliveryLogos: {
-    flexDirection: 'column',
-    gap: 8,
+  dietitiansAction: {
+    alignItems: 'flex-end',
   },
-  logoButton: {
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  visitButton: {
+    backgroundColor: '#ECFEFF',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 12,
-    minWidth: 60,
+    flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#06B6D4',
   },
-  logoText: {
-    fontSize: 12,
+  visitButtonText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: '#06B6D4',
+    marginRight: 4,
   },
+  
   chatbotFloat: {
     position: 'absolute',
     bottom: 100,
@@ -423,4 +415,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 12,
-  },});
+  },
+});
