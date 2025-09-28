@@ -19,7 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 const { width } = Dimensions.get('window');
 
 // Configuration - Use your actual backend URL
-const API_BASE_URL = 'http://192.168.1.100:8001';
+const API_BASE_URL = 'http://localhost:5000'; 
 
 interface Recipe {
   id: string;
