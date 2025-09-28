@@ -28,12 +28,13 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 .venv
-.env
+venv/
+
 # typescript
 *.tsbuildinfo
+
+# python cache
 __pycache__/
-.env
-__pycache__/
-.env
