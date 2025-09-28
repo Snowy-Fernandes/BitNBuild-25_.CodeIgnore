@@ -4,126 +4,415 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   StyleSheet,
   SafeAreaView,
   Alert,
+  Platform,
+  ActivityIndicator,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { 
   ChevronLeft, 
   MessageCircle,
   Camera,
   Upload,
-  TrendingDown,
-  Plus,
-  Minus,
+  Sparkles,
+  AlertCircle,
+  Type,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react-native';
 
-const nutritionData = {
-  totalCalories: 520,
+const { width: screenWidth } = Dimensions.get('window');
+
+// Configuration - Use your actual backend URL
+const API_BASE_URL = 'http://localhost:5000'; // For iOS simulator
+// const API_BASE_URL = 'http://10.0.2.2:5000'; // For Android emulator
+// const API_BASE_URL = 'http://192.168.x.x:5000'; // For physical device
+
+interface NutritionData {
+  id: string;
+  description: string;
+  totalCalories: number;
   macros: {
-    protein: { value: 28, percentage: 22 },
-    carbs: { value: 45, percentage: 35 },
-    fats: { value: 25, percentage: 43 },
-  },
-  micronutrients: [
-    { name: 'Vitamin C', value: '45mg', daily: '75%' },
-    { name: 'Iron', value: '8.2mg', daily: '46%' },
-    { name: 'Calcium', value: '240mg', daily: '24%' },
-    { name: 'Fiber', value: '12g', daily: '48%' },
-  ],
-  identifiedIngredients: [
-    {
-      id: 1,
-      name: 'Chicken Breast',
-      quantity: '150g',
-      calories: 248,
-      protein: 25,
-      carbs: 0,
-      fats: 3,
-    },
-    {
-      id: 2,
-      name: 'Brown Rice',
-      quantity: '100g',
-      calories: 180,
-      protein: 3,
-      carbs: 35,
-      fats: 2,
-    },
-    {
-      id: 3,
-      name: 'Mixed Vegetables',
-      quantity: '80g',
-      calories: 92,
-      protein: 0,
-      carbs: 10,
-      fats: 20,
-    },
-  ],
-  suggestions: [
-    {
-      id: 1,
-      type: 'reduce',
-      title: 'Reduce sodium',
-      description: 'Consider using herbs instead of salt for flavoring',
-      impact: 'Better heart health',
-      icon: '🧂',
-    },
-    {
-      id: 2,
-      type: 'add',
-      title: 'Add more fiber',
-      description: 'Include a side of leafy greens or beans',
-      impact: 'Better digestion',
-      icon: '🥬',
-    },
-    {
-      id: 3,
-      type: 'balance',
-      title: 'Balance protein',
-      description: 'Great protein content for muscle maintenance',
-      impact: 'Optimal nutrition',
-      icon: '💪',
-    },
-  ],
-};
+    protein: { value: number; percentage: number };
+    carbs: { value: number; percentage: number };
+    fats: { value: number; percentage: number };
+  };
+  micronutrients: Array<{
+    name: string;
+    value: string;
+    daily: string;
+  }>;
+  identifiedIngredients: Array<{
+    id: number;
+    name: string;
+    quantity: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fats: number;
+  }>;
+  suggestions: Array<{
+    id: number;
+    type: 'reduce' | 'add' | 'balance';
+    title: string;
+    description: string;
+    impact: string;
+    icon: string;
+  }>;
+  confidence?: string;
+  analysisTime?: string;
+  image?: string;
+}
+
+interface ApiResponse {
+  success: boolean;
+  data?: NutritionData;
+  error?: string;
+  message?: string;
+}
+
+type TabType = 'image' | 'text';
 
 export default function NutritionExtractorScreen() {
+  const [activeTab, setActiveTab] = useState<TabType>('image');
+  const [foodDescription, setFoodDescription] = useState('');
+  const [extractedNutrition, setExtractedNutrition] = useState<NutritionData | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  const handlePhotoUpload = () => {
-    Alert.alert('Photo Upload', 'Camera/gallery access will be available soon');
-    simulateAnalysis();
+  // Improved API call function with better error handling
+  const makeApiCall = async (endpoint: string, method: string, data?: any): Promise<ApiResponse> => {
+    try {
+      console.log(`Making API call to: ${API_BASE_URL}${endpoint}`);
+      
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: data ? JSON.stringify(data) : undefined,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('API Success Response:', result);
+      return result as ApiResponse;
+
+    } catch (error: any) {
+      console.error('API Call Failed:', error);
+      
+      if (error.message && error.message.includes('Network request failed')) {
+        throw new Error('Cannot connect to server. Please make sure the backend is running on ' + API_BASE_URL);
+      }
+      
+      throw error;
+    }
   };
 
-  const simulateAnalysis = () => {
-    setAnalyzing(true);
-    setTimeout(() => {
+  // Test backend connection
+  const testBackendConnection = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/health`);
+      return response.ok;
+    } catch (error) {
+      console.error('Backend connection test failed:', error);
+      return false;
+    }
+  };
+
+  // Photo upload and processing
+  const handlePhotoUpload = async () => {
+    try {
+      const isConnected = await testBackendConnection();
+      if (!isConnected) {
+        Alert.alert(
+          'Connection Error', 
+          `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the server is running.`
+        );
+        return;
+      }
+
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera roll permissions to upload photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setAnalyzing(true);
+        setAnalysisStatus('Analyzing food image...');
+        setSelectedImage(result.assets[0].uri);
+
+        const base64Image = result.assets[0].base64;
+        
+        const response = await makeApiCall('/api/analyze-nutrition', 'POST', {
+          imageBase64: base64Image
+        });
+
+        if (response.success && response.data) {
+          setExtractedNutrition(response.data);
+          setShowResults(true);
+          Alert.alert('Success', 'Nutrition analysis completed successfully!');
+        } else {
+          throw new Error(response.error || 'Failed to analyze nutrition from photo');
+        }
+      }
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      Alert.alert('Error', error.message || 'Failed to analyze nutrition from photo');
+    } finally {
       setAnalyzing(false);
-      setShowResults(true);
-    }, 2500);
+      setAnalysisStatus('');
+    }
   };
 
-  const adjustQuantity = (ingredientId: number, change: number) => {
-    Alert.alert(
-      'Adjust Quantity',
-      `This will recalculate nutrition values based on the new quantity. Feature coming soon!`
-    );
+  // Camera capture
+  const handleTakePhoto = async () => {
+    try {
+      const isConnected = await testBackendConnection();
+      if (!isConnected) {
+        Alert.alert(
+          'Connection Error', 
+          `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the server is running.`
+        );
+        return;
+      }
+
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant camera permissions to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setAnalyzing(true);
+        setAnalysisStatus('Analyzing food image...');
+        setSelectedImage(result.assets[0].uri);
+
+        const base64Image = result.assets[0].base64;
+        
+        const response = await makeApiCall('/api/analyze-nutrition', 'POST', {
+          imageBase64: base64Image
+        });
+
+        if (response.success && response.data) {
+          setExtractedNutrition(response.data);
+          setShowResults(true);
+          Alert.alert('Success', 'Nutrition analysis completed successfully!');
+        } else {
+          throw new Error(response.error || 'Failed to analyze nutrition from photo');
+        }
+      }
+    } catch (error: any) {
+      console.error('Camera capture error:', error);
+      Alert.alert('Error', error.message || 'Failed to analyze nutrition from photo');
+    } finally {
+      setAnalyzing(false);
+      setAnalysisStatus('');
+    }
   };
 
-  const MacroCircle = ({ macro, color }: { macro: any, color: string }) => (
+  // Text description analysis
+  const handleTextAnalysis = async () => {
+    if (!foodDescription.trim()) {
+      Alert.alert('Input Required', 'Please describe the food you want to analyze');
+      return;
+    }
+
+    try {
+      const isConnected = await testBackendConnection();
+      if (!isConnected) {
+        Alert.alert(
+          'Connection Error', 
+          `Cannot connect to backend server at ${API_BASE_URL}. Please make sure the server is running.`
+        );
+        return;
+      }
+
+      setAnalyzing(true);
+      setAnalysisStatus('Analyzing food description...');
+
+      const response = await makeApiCall('/api/analyze-nutrition', 'POST', {
+        description: foodDescription.trim()
+      });
+
+      if (response.success && response.data) {
+        setExtractedNutrition(response.data);
+        setShowResults(true);
+        Alert.alert('Success', 'Nutrition analysis completed successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to analyze nutrition from description');
+      }
+    } catch (error: any) {
+      console.error('Text analysis error:', error);
+      Alert.alert('Error', error.message || 'Failed to analyze nutrition from description');
+    } finally {
+      setAnalyzing(false);
+      setAnalysisStatus('');
+    }
+  };
+
+  // Macro Circle Component
+  const MacroCircle = ({ macro, color, label }: { macro: any; color: string; label: string }) => (
     <View style={styles.macroCircle}>
       <View style={[styles.macroRing, { borderColor: color }]}>
         <Text style={styles.macroValue}>{macro.value}g</Text>
       </View>
       <Text style={styles.macroLabel}>{macro.percentage}%</Text>
+      <Text style={styles.macroTitle}>{label}</Text>
     </View>
   );
 
+  // Tab configurations
+  const tabs = [
+    {
+      id: 'image' as TabType,
+      title: 'Image',
+      icon: ImageIcon,
+      description: 'Upload or take photos',
+    },
+    {
+      id: 'text' as TabType,
+      title: 'Text',
+      icon: Type,
+      description: 'Describe your food',
+    },
+  ];
+
+  // Render tab content based on active tab
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'image':
+        return (
+          <View style={styles.tabContent}>
+            <Text style={styles.tabTitle}>Food Image Analysis</Text>
+            <Text style={styles.tabSubtitle}>
+              Take a photo or upload from gallery to analyze nutrition content
+            </Text>
+            
+            <View style={styles.imageUploadArea}>
+              {selectedImage ? (
+                <View style={styles.imageContainer}>
+                  <Image source={{ uri: selectedImage }} style={styles.uploadedImage} />
+                  <TouchableOpacity
+                    style={styles.removeImageButton}
+                    onPress={() => setSelectedImage(null)}>
+                    <X size={16} color="#FFFFFF" strokeWidth={2} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <>
+                  <View style={styles.uploadIcon}>
+                    <ImageIcon size={48} color="#6C8BE6" strokeWidth={1.5} />
+                  </View>
+                  <Text style={styles.uploadMainText}>Upload Food Photo</Text>
+                  <Text style={styles.uploadSubText}>
+                    Clear, well-lit photos of meals work best for accurate analysis
+                  </Text>
+                </>
+              )}
+            </View>
+
+            <View style={styles.actionButtons}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleTakePhoto}
+                disabled={analyzing}>
+                <Camera size={20} color="#FFFFFF" strokeWidth={2} />
+                <Text style={styles.primaryButtonText}>
+                  {analyzing ? 'Processing...' : 'Take Photo'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={handlePhotoUpload}
+                disabled={analyzing}>
+                <Upload size={20} color="#6C8BE6" strokeWidth={2} />
+                <Text style={styles.secondaryButtonText}>Choose from Gallery</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        );
+
+      case 'text':
+        return (
+          <View style={styles.tabContent}>
+            <Text style={styles.tabTitle}>Food Description Analysis</Text>
+            <Text style={styles.tabSubtitle}>
+              Describe your meal and we'll provide detailed nutrition analysis
+            </Text>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Food Description</Text>
+              <TextInput
+                style={styles.textInput}
+                value={foodDescription}
+                onChangeText={setFoodDescription}
+                placeholder="e.g., Grilled chicken breast with brown rice and steamed vegetables, 200g salmon with quinoa salad, etc."
+                placeholderTextColor="#9CA3AF"
+                editable={!analyzing}
+                multiline={true}
+                numberOfLines={4}
+                textAlignVertical="top"
+              />
+              <Text style={styles.inputHint}>
+                Be specific about ingredients, quantities, and preparation methods for better accuracy.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!foodDescription.trim() || analyzing) && styles.primaryButtonDisabled,
+              ]}
+              onPress={handleTextAnalysis}
+              disabled={!foodDescription.trim() || analyzing}>
+              <Sparkles size={20} color="#FFFFFF" strokeWidth={2} />
+              <Text style={styles.primaryButtonText}>
+                {analyzing ? 'Analyzing...' : 'Analyze Nutrition'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -132,117 +421,135 @@ export default function NutritionExtractorScreen() {
           accessibilityRole="button">
           <ChevronLeft size={24} color="#6B7280" strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Nutrition Extractor</Text>
+        <Text style={styles.headerTitle}>Nutrition Analyzer</Text>
+      </View>
+
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScrollContent}>
+          {tabs.map((tab) => {
+            const IconComponent = tab.icon;
+            const isActive = activeTab === tab.id;
+            
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.tab, isActive && styles.activeTab]}
+                onPress={() => setActiveTab(tab.id)}
+                accessibilityLabel={`${tab.title} tab`}
+                accessibilityRole="tab">
+                <View style={[styles.tabIcon, isActive && styles.activeTabIcon]}>
+                  <IconComponent 
+                    size={20} 
+                    color={isActive ? '#6C8BE6' : '#9CA3AF'} 
+                    strokeWidth={2} 
+                  />
+                </View>
+                <Text style={[styles.tabText, isActive && styles.activeTabText]}>
+                  {tab.title}
+                </Text>
+                <Text style={[styles.tabDescription, isActive && styles.activeTabDescription]}>
+                  {tab.description}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Analyze your meal</Text>
-        <Text style={styles.subtitle}>
-          Upload a photo to get detailed nutrition breakdown
-        </Text>
+        {/* Connection Test Button - For debugging */}
+        <TouchableOpacity 
+          style={styles.connectionTestButton}
+          onPress={async () => {
+            const isConnected = await testBackendConnection();
+            Alert.alert(
+              'Connection Test', 
+              isConnected 
+                ? 'Backend is connected successfully!' 
+                : 'Cannot connect to backend. Please check if the server is running.'
+            );
+          }}>
+        </TouchableOpacity>
 
-        {!showResults && (
-          <View style={styles.uploadSection}>
-            <View style={styles.photoControls}>
-              <TouchableOpacity
-                style={styles.photoButton}
-                onPress={handlePhotoUpload}
-                accessibilityLabel="Upload photo from gallery"
-                accessibilityRole="button">
-                <Upload size={24} color="#6C8BE6" strokeWidth={2} />
-                <Text style={styles.photoButtonText}>Upload from Gallery</Text>
-              </TouchableOpacity>
+        {/* Tab Content */}
+        {renderTabContent()}
 
-              <TouchableOpacity
-                style={styles.photoButton}
-                onPress={handlePhotoUpload}
-                accessibilityLabel="Take photo with camera"
-                accessibilityRole="button">
-                <Camera size={24} color="#6C8BE6" strokeWidth={2} />
-                <Text style={styles.photoButtonText}>Take Photo</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.exampleSection}>
-              <Text style={styles.exampleTitle}>Works best with:</Text>
-              <View style={styles.exampleGrid}>
-                <View style={styles.exampleItem}>
-                  <Text style={styles.exampleEmoji}>🍽️</Text>
-                  <Text style={styles.exampleText}>Complete meals</Text>
-                </View>
-                <View style={styles.exampleItem}>
-                  <Text style={styles.exampleEmoji}>🥗</Text>
-                  <Text style={styles.exampleText}>Salads & bowls</Text>
-                </View>
-                <View style={styles.exampleItem}>
-                  <Text style={styles.exampleEmoji}>🍕</Text>
-                  <Text style={styles.exampleText}>Single dishes</Text>
-                </View>
-                <View style={styles.exampleItem}>
-                  <Text style={styles.exampleEmoji}>🥪</Text>
-                  <Text style={styles.exampleText}>Sandwiches</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        )}
-
+        {/* Analysis Status */}
         {analyzing && (
           <View style={styles.analyzingIndicator}>
-            <View style={styles.analyzingAnimation} />
-            <Text style={styles.analyzingText}>Analyzing nutrition content...</Text>
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#6C8BE6" />
+              <Text style={styles.analyzingText}>
+                {analysisStatus || 'Analyzing...'}
+              </Text>
+            </View>
+            {analysisStatus.includes('image') && (
+              <Text style={styles.analyzingSubtext}>
+                Using AI vision to identify food items and estimate nutrition
+              </Text>
+            )}
+            {analysisStatus.includes('description') && (
+              <Text style={styles.analyzingSubtext}>
+                Analyzing nutritional content based on your description
+              </Text>
+            )}
           </View>
         )}
 
-        {showResults && (
+        {/* Results Section */}
+        {showResults && extractedNutrition && (
           <View style={styles.resultsSection}>
-            <View style={styles.overviewCard}>
-              <View style={styles.caloriesDisplay}>
-                <Text style={styles.caloriesNumber}>{nutritionData.totalCalories}</Text>
-                <Text style={styles.caloriesLabel}>Total Calories</Text>
-              </View>
+            <View style={styles.resultsHeader}>
+              <Text style={styles.resultsTitle}>Nutrition Analysis</Text>
+            </View>
+            
+            {/* Meal Description */}
+            <View style={styles.mealDescriptionCard}>
+              <Text style={styles.mealDescriptionTitle}>Meal Description</Text>
+              <Text style={styles.mealDescriptionText}>"{extractedNutrition.description}"</Text>
+            </View>
 
+            {/* Calories Overview */}
+            <View style={styles.caloriesCard}>
+              <Text style={styles.caloriesTitle}>Total Calories</Text>
+              <Text style={styles.caloriesValue}>{extractedNutrition.totalCalories}</Text>
+              <Text style={styles.caloriesSubtitle}>Estimated Energy Content</Text>
+            </View>
+
+            {/* Macros Grid */}
+            <View style={styles.macrosSection}>
+              <Text style={styles.sectionTitle}>Macronutrients</Text>
               <View style={styles.macrosGrid}>
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroTitle}>Protein</Text>
-                  <MacroCircle macro={nutritionData.macros.protein} color="#6C8BE6" />
-                </View>
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroTitle}>Carbs</Text>
-                  <MacroCircle macro={nutritionData.macros.carbs} color="#BFAFF7" />
-                </View>
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroTitle}>Fats</Text>
-                  <MacroCircle macro={nutritionData.macros.fats} color="#EFF3FF" />
-                </View>
+                <MacroCircle 
+                  macro={extractedNutrition.macros.protein} 
+                  color="#6C8BE6" 
+                  label="Protein" 
+                />
+                <MacroCircle 
+                  macro={extractedNutrition.macros.carbs} 
+                  color="#BFAFF7" 
+                  label="Carbs" 
+                />
+                <MacroCircle 
+                  macro={extractedNutrition.macros.fats} 
+                  color="#F59E0B" 
+                  label="Fats" 
+                />
               </View>
             </View>
 
+            {/* Ingredients */}
             <View style={styles.ingredientsSection}>
               <Text style={styles.sectionTitle}>Identified Ingredients</Text>
-              {nutritionData.identifiedIngredients.map((ingredient) => (
+              {extractedNutrition.identifiedIngredients.map((ingredient) => (
                 <View key={ingredient.id} style={styles.ingredientCard}>
                   <View style={styles.ingredientHeader}>
-                    <View style={styles.ingredientInfo}>
-                      <Text style={styles.ingredientName}>{ingredient.name}</Text>
-                      <Text style={styles.ingredientQuantity}>{ingredient.quantity}</Text>
-                    </View>
-                    <View style={styles.quantityControls}>
-                      <TouchableOpacity
-                        style={styles.quantityButton}
-                        onPress={() => adjustQuantity(ingredient.id, -10)}
-                        accessibilityLabel={`Decrease ${ingredient.name} quantity`}
-                        accessibilityRole="button">
-                        <Minus size={12} color="#6C8BE6" strokeWidth={2} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.quantityButton}
-                        onPress={() => adjustQuantity(ingredient.id, 10)}
-                        accessibilityLabel={`Increase ${ingredient.name} quantity`}
-                        accessibilityRole="button">
-                        <Plus size={12} color="#6C8BE6" strokeWidth={2} />
-                      </TouchableOpacity>
-                    </View>
+                    <Text style={styles.ingredientName}>{ingredient.name}</Text>
+                    <Text style={styles.ingredientQuantity}>{ingredient.quantity}</Text>
                   </View>
                   <View style={styles.ingredientNutrition}>
                     <View style={styles.nutritionItem}>
@@ -266,10 +573,11 @@ export default function NutritionExtractorScreen() {
               ))}
             </View>
 
+            {/* Micronutrients */}
             <View style={styles.microSection}>
               <Text style={styles.sectionTitle}>Micronutrients</Text>
               <View style={styles.microGrid}>
-                {nutritionData.micronutrients.map((micro, index) => (
+                {extractedNutrition.micronutrients.map((micro, index) => (
                   <View key={index} style={styles.microCard}>
                     <Text style={styles.microName}>{micro.name}</Text>
                     <Text style={styles.microValue}>{micro.value}</Text>
@@ -279,14 +587,11 @@ export default function NutritionExtractorScreen() {
               </View>
             </View>
 
+            {/* Suggestions */}
             <View style={styles.suggestionsSection}>
               <Text style={styles.sectionTitle}>Smart Suggestions</Text>
-              {nutritionData.suggestions.map((suggestion) => (
-                <TouchableOpacity
-                  key={suggestion.id}
-                  style={styles.suggestionCard}
-                  accessibilityLabel={suggestion.title}
-                  accessibilityRole="button">
+              {extractedNutrition.suggestions.map((suggestion) => (
+                <View key={suggestion.id} style={styles.suggestionCard}>
                   <View style={styles.suggestionHeader}>
                     <Text style={styles.suggestionIcon}>{suggestion.icon}</Text>
                     <View style={styles.suggestionInfo}>
@@ -295,38 +600,62 @@ export default function NutritionExtractorScreen() {
                         {suggestion.description}
                       </Text>
                     </View>
-                    {suggestion.type === 'reduce' && (
-                      <View style={styles.suggestionBadge}>
-                        <TrendingDown size={12} color="#FFFFFF" strokeWidth={2} />
-                      </View>
-                    )}
                   </View>
                   <Text style={styles.suggestionImpact}>
                     Impact: {suggestion.impact}
                   </Text>
-                </TouchableOpacity>
+                </View>
               ))}
             </View>
 
-            <TouchableOpacity
-              style={styles.analyzeAnotherButton}
-              onPress={() => setShowResults(false)}
-              accessibilityLabel="Analyze another meal"
-              accessibilityRole="button">
-              <Camera size={16} color="#6C8BE6" strokeWidth={2} />
-              <Text style={styles.analyzeAnotherText}>Analyze Another Meal</Text>
-            </TouchableOpacity>
+            {/* Action Button */}
+            <View style={styles.actionSection}>
+              <TouchableOpacity
+                style={styles.newAnalysisButton}
+                onPress={() => {
+                  setShowResults(false);
+                  setExtractedNutrition(null);
+                  setSelectedImage(null);
+                  setFoodDescription('');
+                }}>
+                <Camera size={20} color="#FFFFFF" strokeWidth={2} />
+                <Text style={styles.newAnalysisButtonText}>New Analysis</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Help Section */}
+        {!analyzing && !showResults && (
+          <View style={styles.helpSection}>
+            <View style={styles.helpHeader}>
+              <AlertCircle size={20} color="#6C8BE6" strokeWidth={2} />
+              <Text style={styles.helpTitle}>Tips for Best Results</Text>
+            </View>
+            
+            <View style={styles.tipsList}>
+              {activeTab === 'image' && (
+                <>
+                  <Text style={styles.tipItem}>• Use clear, well-lit photos of your meal</Text>
+                  <Text style={styles.tipItem}>• Ensure food is clearly visible and not blurry</Text>
+                  <Text style={styles.tipItem}>• Include the entire meal in the frame</Text>
+                  <Text style={styles.tipItem}>• Avoid shadows covering the food</Text>
+                </>
+              )}
+              {activeTab === 'text' && (
+                <>
+                  <Text style={styles.tipItem}>• Be specific about ingredients and quantities</Text>
+                  <Text style={styles.tipItem}>• Include cooking methods (grilled, fried, etc.)</Text>
+                  <Text style={styles.tipItem}>• Mention portion sizes when possible</Text>
+                  <Text style={styles.tipItem}>• Include sauces and dressings</Text>
+                </>
+              )}
+            </View>
           </View>
         )}
       </ScrollView>
 
-      <TouchableOpacity
-        style={styles.chatbotFloat}
-        onPress={() => router.push('/chatbot')}
-        accessibilityLabel="Open chatbot"
-        accessibilityRole="button">
-        <MessageCircle size={24} color="#FFFFFF" strokeWidth={2} />
-      </TouchableOpacity>
+      
     </SafeAreaView>
   );
 }
@@ -334,20 +663,28 @@ export default function NutritionExtractorScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F6F8FB',
+    backgroundColor: '#F8FAFC',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
+    paddingTop: Platform.OS === 'android' ? 10 : 0,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    elevation: Platform.OS === 'android' ? 4 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 3 : undefined,
   },
   backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#EFF3FF',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -355,204 +692,419 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1F2937',
+    color: '#1E293B',
   },
+  
+  // Connection Test Button
+  connectionTestButton: {
+    backgroundColor: '#F1F5F9',
+    padding: 8,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginTop: 16,
+  },
+  connectionTestText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  
+  // Tabs
+  tabsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+  },
+  tabsScrollContent: {
+    paddingHorizontal: 20,
+  },
+  tab: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginRight: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+    minWidth: screenWidth * 0.35,
+  },
+  activeTab: {
+    backgroundColor: '#EFF6FF',
+  },
+  tabIcon: {
+    marginBottom: 4,
+  },
+  activeTabIcon: {},
+  tabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748B',
+    marginBottom: 2,
+  },
+  activeTabText: {
+    color: '#6C8BE6',
+    fontWeight: '600',
+  },
+  tabDescription: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textAlign: 'center',
+  },
+  activeTabDescription: {
+    color: '#6C8BE6',
+  },
+
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1F2937',
+
+  // Tab Content
+  tabContent: {
+    paddingTop: 24,
+    paddingBottom: 32,
+  },
+  tabTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1E293B',
     marginBottom: 8,
   },
-  subtitle: {
+  tabSubtitle: {
     fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 32,
+    color: '#64748B',
     lineHeight: 24,
-  },
-  uploadSection: {
     marginBottom: 32,
   },
-  photoControls: {
-    flexDirection: 'row',
+
+  // Image Upload Area with improved design
+  imageUploadArea: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    minHeight: 200,
+    justifyContent: 'center',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
+  },
+  imageContainer: {
+    position: 'relative',
+    width: '100%',
+    alignItems: 'center',
+  },
+  uploadedImage: {
+    width: screenWidth * 0.7,
+    height: 200,
+    borderRadius: 12,
+    resizeMode: 'cover',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: (screenWidth * 0.15) - 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadIcon: {
+    marginBottom: 16,
+  },
+  uploadMainText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  uploadSubText: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Input Container
+  inputContainer: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 8,
+    minHeight: 120,
+    textAlignVertical: 'top',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: '#64748B',
+    fontStyle: 'italic',
+  },
+
+  // Buttons
+  actionButtons: {
     gap: 12,
-    marginBottom: 32,
   },
-  photoButton: {
-    flex: 1,
-    backgroundColor: '#EFF3FF',
+  primaryButton: {
+    backgroundColor: '#6C8BE6',
+    borderRadius: 12,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    elevation: Platform.OS === 'android' ? 3 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#6C8BE6' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 4 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.3 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 8 : undefined,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.5,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  secondaryButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6C8BE6',
+  },
+
+  // Analysis Indicator
+  analyzingIndicator: {
+    backgroundColor: '#EFF6FF',
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 120,
-  },
-  photoButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6C8BE6',
-    marginTop: 8,
-  },
-  exampleSection: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  exampleTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
-  },
-  exampleGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-  },
-  exampleItem: {
-    flex: 1,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  exampleEmoji: {
-    fontSize: 24,
-    marginBottom: 8,
-  },
-  exampleText: {
-    fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'center',
-  },
-  analyzingIndicator: {
-    backgroundColor: '#EFF3FF',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
     marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
   },
-  analyzingAnimation: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#6C8BE6',
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 12,
   },
   analyzingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginLeft: 12,
+  },
+  analyzingSubtext: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#64748B',
     textAlign: 'center',
+    lineHeight: 20,
   },
+
+  // Results Section
   resultsSection: {
-    marginBottom: 40,
+    marginBottom: 32,
   },
-  overviewCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#EFF3FF',
-  },
-  caloriesDisplay: {
+  resultsHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    marginBottom: 20,
   },
-  caloriesNumber: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#6C8BE6',
+  resultsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
   },
-  caloriesLabel: {
+
+  // Meal Description
+  mealDescriptionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
+  },
+  mealDescriptionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  mealDescriptionText: {
     fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: '#64748B',
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+
+  // Calories Card with gradient-like effect
+  caloriesCard: {
+    backgroundColor: '#6C8BE6',
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    marginBottom: 20,
+    elevation: Platform.OS === 'android' ? 4 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#6C8BE6' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 6 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.3 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 12 : undefined,
+  },
+  caloriesTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  caloriesValue: {
+    fontSize: 52,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  caloriesSubtitle: {
+    fontSize: 14,
+    color: '#E2E8F0',
+  },
+
+  // Sections
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 16,
+  },
+
+  // Macros with improved spacing
+  macrosSection: {
+    marginBottom: 28,
   },
   macrosGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-  },
-  macroItem: {
     alignItems: 'center',
-  },
-  macroTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
   },
   macroCircle: {
     alignItems: 'center',
   },
   macroRing: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: screenWidth * 0.2,
+    height: screenWidth * 0.2,
+    borderRadius: screenWidth * 0.1,
     borderWidth: 4,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
   },
   macroValue: {
-    fontSize: 12,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#1F2937',
+    color: '#1E293B',
   },
   macroLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: '#64748B',
+    marginBottom: 4,
   },
-  sectionTitle: {
-    fontSize: 20,
+  macroTitle: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 16,
+    color: '#1E293B',
   },
+
+  // Ingredients with improved cards
   ingredientsSection: {
-    marginBottom: 32,
+    marginBottom: 28,
   },
   ingredientCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#EFF3FF',
+    borderColor: '#E2E8F0',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
   },
   ingredientHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  ingredientInfo: {
-    flex: 1,
+    marginBottom: 16,
   },
   ingredientName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 2,
+    color: '#1E293B',
+    flex: 1,
   },
   ingredientQuantity: {
     fontSize: 14,
-    color: '#6B7280',
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  quantityButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#EFF3FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    color: '#6C8BE6',
+    fontWeight: '500',
   },
   ingredientNutrition: {
     flexDirection: 'row',
@@ -560,129 +1112,181 @@ const styles = StyleSheet.create({
   },
   nutritionItem: {
     alignItems: 'center',
+    flex: 1,
   },
   nutritionValue: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#6C8BE6',
   },
   nutritionLabel: {
-    fontSize: 10,
-    color: '#6B7280',
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
   },
+
+  // Micronutrients with responsive grid
   microSection: {
-    marginBottom: 32,
+    marginBottom: 28,
   },
   microGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
     gap: 12,
   },
   microCard: {
-    flex: 1,
-    minWidth: 120,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#EFF3FF',
+    borderColor: '#E2E8F0',
+    width: (screenWidth - 64) / 2, // Two columns with margins
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
   },
   microName: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 4,
+    color: '#1E293B',
+    marginBottom: 6,
     textAlign: 'center',
   },
   microValue: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#6C8BE6',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   microDaily: {
     fontSize: 10,
-    color: '#6B7280',
+    color: '#64748B',
   },
+
+  // Suggestions with enhanced styling
   suggestionsSection: {
-    marginBottom: 32,
+    marginBottom: 28,
   },
   suggestionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 16,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#EFF3FF',
+    borderColor: '#E2E8F0',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
   },
   suggestionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   suggestionIcon: {
-    fontSize: 24,
-    marginRight: 12,
+    fontSize: 28,
+    marginRight: 16,
   },
   suggestionInfo: {
     flex: 1,
   },
   suggestionTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 2,
+    color: '#1E293B',
+    marginBottom: 6,
   },
   suggestionDescription: {
-    fontSize: 12,
-    color: '#6B7280',
-    lineHeight: 16,
-  },
-  suggestionBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#6C8BE6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontSize: 14,
+    color: '#64748B',
+    lineHeight: 20,
   },
   suggestionImpact: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#BFAFF7',
     fontStyle: 'italic',
+    fontWeight: '500',
   },
-  analyzeAnotherButton: {
-    backgroundColor: '#EFF3FF',
-    borderRadius: 12,
-    padding: 16,
+
+  // Action Section - simplified
+  actionSection: {
+    marginTop: 8,
+  },
+  newAnalysisButton: {
+    backgroundColor: '#6C8BE6',
+    borderRadius: 16,
+    padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 12,
+    elevation: Platform.OS === 'android' ? 3 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#6C8BE6' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 4 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.3 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 8 : undefined,
   },
-  analyzeAnotherText: {
-    fontSize: 14,
+  newAnalysisButtonText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#6C8BE6',
+    color: '#FFFFFF',
   },
+
+  // Help Section with improved styling
+  helpSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 100,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    elevation: Platform.OS === 'android' ? 2 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#000' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 2 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.1 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 4 : undefined,
+  },
+  helpHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 12,
+  },
+  helpTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  tipsList: {
+    gap: 12,
+  },
+  tipItem: {
+    fontSize: 14,
+    color: '#64748B',
+    lineHeight: 22,
+  },
+
+  // Floating Button with improved positioning
   chatbotFloat: {
     position: 'absolute',
-    bottom: 80,
-    right: 24,
+    bottom: Platform.OS === 'android' ? 30 : 100,
+    right: 20,
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: '#6C8BE6',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
+    elevation: Platform.OS === 'android' ? 6 : 0,
+    shadowColor: Platform.OS === 'ios' ? '#6C8BE6' : undefined,
+    shadowOffset: Platform.OS === 'ios' ? { width: 0, height: 4 } : undefined,
+    shadowOpacity: Platform.OS === 'ios' ? 0.3 : undefined,
+    shadowRadius: Platform.OS === 'ios' ? 8 : undefined,
   },
 });

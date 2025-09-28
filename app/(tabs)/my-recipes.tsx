@@ -300,13 +300,7 @@ export default function MyRecipesScreen() {
         )}
       </View>
 
-      <TouchableOpacity
-        style={styles.chatbotFloat}
-        onPress={() => router.push('/chatbot')}
-        accessibilityLabel="Open chatbot"
-        accessibilityRole="button">
-        <MessageCircle size={24} color="#FFFFFF" strokeWidth={2} />
-      </TouchableOpacity>
+      
     </SafeAreaView>
   );
 }

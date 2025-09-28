@@ -285,7 +285,7 @@ export default function FridgeScreen() {
 
   const openRecipeDetail = (recipe: Recipe) => {
     router.push({
-      pathname: '/recipe-detail',
+      pathname: '/recipe-detail-fridge',
       params: { 
         recipe: JSON.stringify(recipe),
         from: 'fridge'

@@ -839,12 +839,7 @@ export default function RecipeExtractorScreen() {
       {/* Enhancement Modal */}
       {renderEnhancementModal()}
 
-      {/* Floating Chatbot Button */}
-      <TouchableOpacity
-        style={styles.chatbotFloat}
-        onPress={() => router.push('/chatbot')}>
-        <MessageCircle size={24} color="#FFFFFF" strokeWidth={2} />
-      </TouchableOpacity>
+    
     </SafeAreaView>
   );
 }

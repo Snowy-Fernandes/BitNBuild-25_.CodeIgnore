@@ -232,13 +232,7 @@ export default function CustomRecipeScreen() {
         )}
       </ScrollView>
 
-      <TouchableOpacity
-        style={styles.chatbotFloat}
-        onPress={() => router.push('/chatbot')}
-        accessibilityLabel="Open chatbot"
-        accessibilityRole="button">
-        <Text style={styles.chatbotIcon}>💬</Text>
-      </TouchableOpacity>
+      
     </SafeAreaView>
   );
 }

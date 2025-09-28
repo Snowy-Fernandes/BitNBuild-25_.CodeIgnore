@@ -17,12 +17,8 @@
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
     "@supabase/supabase-js": "^2.58.0",
-<<<<<<< HEAD
     "expo": "^54.0.10",
     "expo-auth-session": "^7.0.8",
-=======
-    "expo": "^54.0.0",
->>>>>>> 1045d37a227593f1994cfeb1f9ae2bc1c5d0438d
     "expo-blur": "~14.1.3",
     "expo-camera": "~16.1.5",
     "expo-constants": "~17.1.3",
